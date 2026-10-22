@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=1920, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>Reolink TV</title>
+  <link rel="icon" href="assets/icon.png">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="stage">
+    <header class="header" id="header">
+      <div class="brand"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span><span>reolink<span class="brand-tv">TV</span></span></div>
+      <div class="header-right"><span id="connection" class="connection"><i></i> Your home, in view</span><time id="clock"></time></div>
+    </header>
+
+    <main id="dashboard" hidden>
+      <div class="dashboard-heading">
+        <div><p class="eyebrow" id="nvr-name">HOME NVR</p><h1>Your cameras<span class="count" id="camera-count"></span></h1></div>
+        <nav class="toolbar" aria-label="Camera controls">
+          <button id="filter-all" class="pill active">All cameras</button>
+          <button id="filter-favorites" class="pill">☆ Favorites</button>
+          <span class="toolbar-divider"></span>
+          <button id="layout-button" class="icon-button" aria-label="Camera layout" aria-haspopup="dialog" aria-controls="layout-overlay">⊞ <span id="layout-label">Auto</span></button>
+          <button id="fullscreen-grid" class="icon-button" aria-label="Full screen multi-camera view" aria-pressed="false">⛶ <span>Full screen</span></button>
+          <button id="cycle-grid" class="icon-button" aria-label="Cycle cameras">↻ <span>Cycle</span></button>
+          <button id="settings-button" class="icon-button" aria-label="Settings">⚙ <span>Settings</span></button>
+        </nav>
+      </div>
+      <div class="overview-caption"><span><i class="snapshot-dot"></i> Snapshot overview <span class="muted">· Full screen for live cameras</span></span><span id="overview-status"></span></div>
+      <div id="camera-grid" class="camera-grid" aria-label="Cameras"></div>
+      <div id="empty-state" class="empty-state" hidden><div class="empty-icon">☆</div><h2 id="empty-title">No favorites yet</h2><p id="empty-description">Open a camera and select Favorite to keep it here.</p><button id="empty-action" class="secondary">Show all cameras</button></div>
+      <footer class="dashboard-footer">
+        <div class="remote-hints"><span><kbd>↑↓←→</kbd> Browse</span><span><kbd>OK</kbd> Watch live</span><span><kbd>↩</kbd> Back</span></div>
+        <div class="pagination"><button id="page-prev" aria-label="Previous page">←</button><span id="page-label">1 / 1</span><button id="page-next" aria-label="Next page">→</button></div>
+      </footer>
+      <div id="grid-fullscreen-controls" class="grid-fullscreen-controls" hidden>
+        <div class="grid-fullscreen-toolbar" role="toolbar" aria-label="Full screen camera controls">
+          <span id="grid-fullscreen-label" class="grid-fullscreen-label">Live cameras</span>
+          <button id="grid-retry" class="secondary" hidden>Retry unavailable</button>
+          <button id="fullscreen-layout" class="secondary" aria-label="Camera layout" aria-haspopup="dialog" aria-controls="layout-overlay">⊞ <span id="fullscreen-layout-label">Auto</span></button>
+          <div class="pagination"><button id="fullscreen-prev" aria-label="Previous camera page">←</button><span id="fullscreen-page">1 / 1</span><button id="fullscreen-next" aria-label="Next camera page">→</button></div>
+          <button id="exit-fullscreen-grid" class="secondary">⛶ Exit full screen</button>
+        </div>
+        <p>↑↓←→ Browse · OK Expand camera · CH + / − Pages · Back Exit full screen</p>
+      </div>
+    </main>
+
+    <section id="settings" class="settings-screen" aria-labelledby="settings-title">
+      <aside class="welcome-panel">
+        <p class="eyebrow accent">MADE FOR THE BIG SCREEN</p>
+        <h1>Your cameras.<br>A bigger picture.</h1>
+        <p class="welcome-description">A quiet look at everything<br>that matters at home.</p>
+        <div class="welcome-diagram" aria-hidden="true"><div class="nvr-shape"><i></i><i></i><i></i><b></b></div><div class="connection-line"><i></i><i></i><i></i></div><div class="tv-shape"><span></span><span></span><span></span><span></span></div></div>
+        <p class="welcome-note">YOUR NVR <span>→</span> <span id="welcome-device">YOUR TV</span></p>
+        <p class="local-note">Connect over your home network.<br>No cloud account or subscription.</p>
+        <button id="demo-button" class="text-button">Explore the demo <span>↗</span></button>
+        <p class="independent-note">Independent app · Not affiliated with Reolink</p>
+      </aside>
+      <div class="settings-card">
+        <div class="form-heading"><span class="step-badge">01</span><div><h2 id="settings-title">Connect your NVR</h2><p>Use the same login as your Reolink recorder.</p></div></div>
+        <form id="connection-form" autocomplete="off">
+          <div class="form-scroll">
+            <label for="address">NVR address</label><input id="address" name="address" type="text" placeholder="192.168.1.100" spellcheck="false" autocomplete="off" required>
+            <p class="field-help">Find it in Reolink → NVR settings → Network.</p>
+            <button type="button" id="check-address" class="secondary check-address" hidden>Check address</button>
+            <div id="certificate-review" class="certificate-review" role="region" aria-labelledby="certificate-title" hidden>
+              <h3 id="certificate-title">Approve your recorder’s certificate</h3>
+              <p>This recorder uses its own HTTPS certificate. Only approve if this is your NVR on your trusted home network.</p>
+              <strong id="certificate-address"></strong>
+              <p id="certificate-validity"></p>
+              <details><summary>SHA-256 certificate fingerprint</summary><code id="certificate-fingerprint"></code></details>
+              <p>Approval applies only to this address and certificate until the preview server stops. A changed certificate will block the connection again.</p>
+              <div class="certificate-actions"><button type="button" id="certificate-cancel" class="secondary">Cancel</button><button type="button" id="certificate-trust" class="primary">Trust this certificate</button></div>
+            </div>
+            <p id="form-status" class="form-notice" role="status" hidden></p>
+            <div class="form-row"><div><label for="username">Username</label><input id="username" name="username" type="text" value="admin" autocomplete="off" spellcheck="false" required></div><div><label for="password">Password</label><div class="password-field"><input id="password" name="password" type="password" autocomplete="off" required><button type="button" id="show-password" aria-label="Show password">Show</button></div></div></div>
+            <label class="checkbox-row"><input type="checkbox" id="remember"><span><span id="remember-label">Remember password on this TV</span><small>Saved in this app’s local data. Leave off for session-only access.</small></span></label>
+            <button type="button" id="advanced-toggle" class="options-toggle" aria-expanded="false" aria-controls="advanced">Connection options <span>＋</span></button>
+            <div id="advanced" class="advanced" hidden>
+              <div class="form-row"><div><label for="quality">Live video quality</label><select id="quality"><option value="sub">Fluent · Most compatible</option><option value="ext">Balanced · If available</option><option value="main">Clear · H.264 only</option></select></div><div><label for="stream-auth">Stream sign-in</label><select id="stream-auth"><option value="auto">Automatic</option><option value="token">Session token</option><option value="credentials">NVR credentials</option></select></div></div>
+              <p class="field-help">Automatic tries a session token, then credentials for older firmware. Clear requires an H.264 main stream.</p>
+              <div class="form-row"><div><label for="channel-count">Manual channel count</label><input id="channel-count" type="number" min="0" max="64" value="0"></div><div><label for="rtmp-port">RTMP port override</label><input id="rtmp-port" type="number" min="0" max="65535" value="0"></div></div>
+              <p class="field-help">Leave both at 0 for automatic detection.</p>
+              <div class="form-row"><div><label for="refresh">Snapshot interval</label><select id="refresh"><option value="3">3 seconds</option><option value="5">5 seconds</option><option value="10">10 seconds</option></select></div><div><label for="cycle">Camera cycle interval</label><select id="cycle"><option value="10">10 seconds</option><option value="20">20 seconds</option><option value="30">30 seconds</option><option value="60">60 seconds</option></select></div></div>
+              <button type="button" id="forget-button" class="text-button danger">Forget saved connection</button>
+            </div>
+            <div class="setup-tip"><span>ⓘ</span><p>Enable <strong>HTTP</strong> and <strong>RTMP</strong> in the NVR’s Network → Advanced → Server Settings. Connect <span id="setup-device">the TV</span> and NVR to the same network.</p></div>
+            <p id="form-error" class="form-error" role="alert" hidden></p>
+          </div>
+          <div class="form-actions"><button type="button" id="settings-cancel" class="secondary" hidden>Cancel</button><button type="submit" id="connect-button" class="primary">Connect to NVR <span>→</span></button></div>
+        </form>
+      </div>
+    </section>
+
+    <section id="viewer" class="viewer" hidden aria-label="Live camera">
+      <video id="live-video" playsinline autoplay muted></video>
+      <img id="demo-scene" alt="Illustrated demo camera view" hidden>
+      <div id="player-message" class="player-message"><span class="spinner"></span><h2 id="player-message-title">Connecting</h2><p id="player-message-detail"></p><button id="retry-video" class="primary" hidden>Retry live video</button></div>
+      <div id="viewer-top" class="viewer-top"><div><span id="live-badge" class="badge">CONNECTING</span><span id="demo-label" class="demo-label" hidden>DEMO · SIMULATED CAMERA</span></div><time id="viewer-clock"></time></div>
+      <div id="viewer-controls" class="viewer-controls">
+        <div class="viewer-caption"><div><p class="eyebrow" id="viewer-channel">CAMERA 01</p><h1 id="viewer-name"></h1></div><p id="quality-label">Fluent stream</p></div>
+        <div class="viewer-buttons"><button id="back-grid" class="secondary">← All cameras</button><button id="prev-camera" class="secondary" aria-label="Previous camera">←</button><button id="next-camera" class="secondary" aria-label="Next camera">→</button><button id="audio-button" class="secondary" aria-pressed="false">Sound off</button><button id="quality-button" class="secondary">Quality: Fluent</button><button id="favorite-button" class="secondary" aria-pressed="false">☆ Favorite</button><button id="cycle-button" class="secondary" aria-pressed="false">↻ Cycle off</button></div>
+        <p class="viewer-hint">CH + / − to switch cameras · Back to overview · OK to show controls</p>
+      </div>
+    </section>
+
+    <div id="layout-overlay" class="dialog-overlay" hidden>
+      <div class="dialog layout-dialog" role="dialog" aria-modal="true" aria-labelledby="layout-title" aria-describedby="layout-description">
+        <div class="layout-dialog-heading">
+          <div><p class="eyebrow accent">CAMERA OVERVIEW</p><h2 id="layout-title">Choose your layout</h2></div>
+          <button id="layout-auto" class="layout-auto-control" aria-pressed="false"><strong>Auto</strong><span>Fit camera count</span></button>
+        </div>
+        <p id="layout-description">Choose a grid or larger featured cameras. Auto fits up to 25 per page.</p>
+        <div id="layout-options" class="layout-options" aria-label="Camera layouts"></div>
+        <div class="layout-footer"><span>↑↓←→ Choose a layout · OK to apply</span><button id="layout-close" class="secondary">Back</button></div>
+      </div>
+    </div>
+    <div id="dialog-overlay" class="dialog-overlay" hidden><div class="dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title"><h2 id="dialog-title">Leave Reolink TV?</h2><p id="dialog-description">Your saved connection will be here next time.</p><div class="dialog-actions"><button id="dialog-cancel" class="secondary">Stay</button><button id="dialog-confirm" class="primary">Exit app</button></div></div></div>
+    <div id="toast" class="toast" role="status" hidden></div>
+  </div>
+  <script src="vendor/mpegts.js"></script>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

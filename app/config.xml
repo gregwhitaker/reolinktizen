@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<widget xmlns="http://www.w3.org/ns/widgets" xmlns:tizen="http://tizen.org/ns/widgets"
+  id="https://reolink-tv.local/app" version="0.1.9" viewmodes="maximized">
+  <tizen:application id="ReolinkTV1.Viewer" package="ReolinkTV1" required_version="7.0" />
+  <content src="index.html" />
+  <name>Reolink TV</name>
+  <icon src="assets/icon.png" />
+  <description>Local camera viewer for a Reolink NVR. Unofficial independent app.</description>
+  <author>Reolink TV project</author>
+  <license>MIT</license>
+  <access origin="*" subdomains="true" />
+  <tizen:profile name="tv-samsung" />
+  <tizen:privilege name="http://tizen.org/privilege/internet" />
+  <tizen:privilege name="http://tizen.org/privilege/tv.inputdevice" />
+  <tizen:setting screen-orientation="landscape" context-menu="disable"
+    background-support="disable" encryption="disable" install-location="auto" hwkey-event="enable" />
+  <tizen:metadata key="http://samsung.com/tv/metadata/screen.size" value="1920x1080" />
+  <tizen:content-security-policy>default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data: http: https:; media-src 'self' blob: http: https:; connect-src 'self' http: https:; object-src 'none'; worker-src 'self' blob:; base-uri 'self'; form-action 'none'</tizen:content-security-policy>
+</widget>

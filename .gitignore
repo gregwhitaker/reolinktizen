@@ -1,0 +1,11 @@
+node_modules/
+.cache/
+dist/
+artifacts/
+*.p12
+*.pem
+*.key
+profiles.xml
+.env*
+.DS_Store
+test-results/
