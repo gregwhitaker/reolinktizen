@@ -1,4 +1,9 @@
 import { createStreamLoader } from './stream-loader.js';
+import { openStartupStream } from './stream-startup.js';
+
+// Remember only a method that returned video for this connection, never URLs.
+// A new recorder/account gets a new client and negotiates independently.
+const successfulStreamAuth = new WeakMap();
 
 // Each instance owns exactly one decoder and its reconnect/watchdog timers.
 export class CameraPlayer {
@@ -19,6 +24,8 @@ export class CameraPlayer {
     if (library?.LoggingControl) library.LoggingControl.enableAll = false;
     this.onPlaying = () => {
       if (!this.active || !this.player) return;
+      this.hasPlayed = true;
+      if (this.authMode === 'auto') successfulStreamAuth.set(this.client, this.auth);
       this.lastProgress = Date.now();
       if (!this.playingSince) this.playingSince = Date.now();
       this.onState({ state: 'live', quality: this.quality });
@@ -49,7 +56,9 @@ export class CameraPlayer {
     this.channel = channel;
     this.quality = quality;
     this.authMode = authMode;
-    this.auth = authMode === 'credentials' ? 'credentials' : 'token';
+    this.auth = authMode === 'auto' ? (successfulStreamAuth.get(client) || 'token') : authMode;
+    this.triedAuth = new Set([this.auth]);
+    this.hasPlayed = false;
     this.attempts = 0;
     this.fellBack = false;
     await this.start(this.generation);
@@ -58,27 +67,44 @@ export class CameraPlayer {
   async start(generation) {
     if (!this.active || generation !== this.generation) return;
     this.clearMedia();
+    this.streamAccepted = false;
     this.onState({ state: this.attempts ? 'reconnecting' : 'connecting', quality: this.quality });
     try {
       if (!this.library?.getFeatureList().mseLivePlayback) throw new Error('This device cannot play the HTTP video stream. Use the installed TV app or a Chromium browser.');
       const url = await this.client.streamUrl(this.channel, this.quality, this.auth);
       if (!this.active || generation !== this.generation) return;
       this.video.muted = !this.audio;
+      const client = this.client, channel = this.channel, quality = this.quality;
+      const auth = this.auth, alternateAuth = auth === 'token' ? 'credentials' : 'token';
+      const fetchImpl = client.fetch || globalThis.fetch.bind(globalThis);
+      let instance;
+      const fetchStream = this.authMode === 'auto' && !this.hasPlayed ? (url, options) => openStartupStream(url, options, {
+        fetchImpl,
+        alternate: () => client.streamUrl(channel, quality, alternateAuth),
+        onSelect: alternate => {
+          if (!this.active || generation !== this.generation || this.player !== instance) return;
+          this.auth = alternate ? alternateAuth : auth;
+          this.triedAuth.add(this.auth);
+          this.streamAccepted = true;
+          successfulStreamAuth.set(client, this.auth);
+        }
+      }) : fetchImpl;
       this.player = this.library.createPlayer({ type: 'flv', isLive: true, url, cors: true, ...(this.videoOnly ? { hasAudio: false } : {}) }, {
-        customLoader: this.library.BaseLoader ? createStreamLoader(this.library, this.client.fetch) : undefined,
+        customLoader: this.library.BaseLoader ? createStreamLoader(this.library, fetchStream) : undefined,
         enableWorker: false,
         enableWorkerForMSE: false,
         enableStashBuffer: false,
+        deferLoadAfterSourceOpen: false,
         lazyLoad: false,
         liveBufferLatencyChasing: true,
-        liveBufferLatencyMaxLatency: 3,
+        liveBufferLatencyMaxLatency: 1.5,
         liveBufferLatencyMinRemain: 0.5,
         autoCleanupSourceBuffer: true,
         autoCleanupMaxBackwardDuration: this.videoOnly ? 5 : 15,
         autoCleanupMinBackwardDuration: this.videoOnly ? 2 : 5,
         fixAudioTimestampGap: false
       });
-      const instance = this.player;
+      instance = this.player;
       this.player.on(this.library.Events.ERROR, (type, detail) => {
         if (this.player !== instance) return;
         // Never surface library error objects: they can contain authenticated URLs.
@@ -112,8 +138,11 @@ export class CameraPlayer {
     if (generation !== this.generation || !this.active || this.retryTimer) return;
     this.clearMedia();
     this.attempts++;
-    if (this.authMode === 'auto' && this.auth === 'token') {
-      this.auth = 'credentials';
+    let changingAuth = false;
+    if (this.authMode === 'auto' && !this.hasPlayed && !this.streamAccepted && this.triedAuth.size < 2) {
+      this.auth = this.auth === 'token' ? 'credentials' : 'token';
+      this.triedAuth.add(this.auth);
+      changingAuth = true;
     } else if (this.quality !== 'sub' && !this.fellBack) {
       this.quality = 'sub';
       this.fellBack = true;
@@ -127,7 +156,7 @@ export class CameraPlayer {
     this.retryTimer = setTimeout(() => {
       this.retryTimer = null;
       if (generation === this.generation) this.start(generation);
-    }, Math.min(1000 * 2 ** (this.attempts - 1), 8000));
+    }, changingAuth ? 0 : Math.min(1000 * 2 ** (this.attempts - 1), 8000));
   }
 
   setAudio(enabled) { this.audio = !this.videoOnly && enabled; this.video.muted = !this.audio; }

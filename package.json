@@ -1,6 +1,6 @@
 {
   "name": "reolink-tv",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "private": true,
   "type": "module",
   "description": "A local Reolink NVR viewer for Samsung Tizen TVs",
@@ -8,6 +8,7 @@
   "scripts": {
     "dev": "node scripts/serve.mjs",
     "build": "node scripts/build.mjs",
+    "build:discovery": "node scripts/build-discovery.mjs",
     "test": "node --test tests/*.test.mjs",
     "package": "node scripts/build.mjs --package",
     "sign": "node scripts/tizen.mjs sign",

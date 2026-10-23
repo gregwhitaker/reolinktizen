@@ -29,7 +29,7 @@ class StreamResponse extends Writable {
   }
 }
 
-export function attachPreviewStreams(server, key, certificates) {
+export function attachPreviewStreams(server, key) {
   const sockets = new WebSocketServer({ noServer: true, maxPayload: 16384, perMessageDeflate: false });
   server.on('upgrade', (req, socket, head) => {
     const port = server.address()?.port;
@@ -63,7 +63,7 @@ export function attachPreviewStreams(server, key, certificates) {
         response = new StreamResponse(ws);
         const url = new URL('/__nvr', `http://${req.headers.host}`);
         url.searchParams.set('target', target.href);
-        bridgeNvr(relay, response, url, key, certificates).catch(() => response.destroy());
+        bridgeNvr(relay, response, url, key).catch(() => response.destroy());
         ws.on('message', () => ws.close(1008, 'One stream per connection.'));
       });
     });

@@ -5,20 +5,23 @@ A local Reolink NVR viewer for Samsung Tizen TVs, targeting the **Samsung S90C /
 ## What it does
 
 - Connects directly to your NVR over the local network using its Reolink HTTP API.
+- Finds ONVIF-enabled Reolink recorders on the LAN from the local browser preview or the TV's own socket worker.
 - Discovers camera names and channel numbers, including offline/sleeping status.
 - Displays an adjustable **snapshot overview**: Auto, 1, 2, 4, 6, 8, 9, 10, 13, 14, 16, or 25 cameras per page, with pagination for up to 64 channels.
 - Includes larger featured-camera arrangements and both side-by-side and stacked two-camera views.
-- Expands any overview layout into a **full-screen live multi-camera view**, with a muted Fluent stream per online tile, independent reconnects, and controls that hide when idle.
+- Expands any overview layout into a **full-screen live multi-camera view**, starting streams on entry and returning to snapshots on exit.
 - Opens a selected camera on its own with quality and audio controls through bundled mpegts.js / Media Source Extensions.
 - Supports remote arrows, Select, Back, channel switching, favorites, audio, and timed camera cycling.
 - Uses neutral charcoal surfaces and white focus highlights throughout the interface.
 - Renews API sessions, retries interrupted streams, and falls back from Clear to Fluent video.
 - Pauses streaming and polling when the app is hidden; resumes when it becomes visible.
 - Has an explicitly labeled illustration demo that works without an NVR.
-- Can preview real NVR snapshots and live video in a desktop browser through a local connection bridge.
+- Can preview real NVR live video in a desktop browser through a local connection bridge.
 - Makes no cloud requests and loads no remote scripts, analytics, or fonts.
 
 **Status:** First implementation. Automated tests and a local browser / simulated-NVR check are provided. Playback on your actual S90C and NVR still needs hardware validation. The supplied widget is **unsigned**, so it is **not installable on a stock TV until signed** with a Samsung TV certificate profile containing your TV's DUID. The Mac used to build this did not have Tizen Studio installed.
+
+**Discovery build status:** Desktop discovery and the TV transport source are implemented. The TV's Samsung Emscripten module has not yet been compiled or tested on hardware in this checkout: the compiler is not installed here. TV packaging and signing now require that module and reject missing or stale output. See [the compiler setup](docs/INSTALL.md#build-the-tvs-discovery-module).
 
 ## Preview with your real NVR
 
@@ -28,13 +31,15 @@ Requires Node.js 20+; no npm install step or runtime server dependency for the T
 npm run dev
 ```
 
-Open http://127.0.0.1:4173/?connect=1 in a Chromium browser. Enter your **NVR's local IP address** and select **Check address**. The preview checks the Reolink API without a password and switches to HTTPS if the same recorder requires it. If its HTTPS certificate is self-signed or does not match its IP address, review the certificate panel and select **Trust this certificate** only if this is your recorder on your trusted home network. Then enter your **NVR username and password** and select **Connect to NVR**. Enable HTTP or HTTPS and RTMP on the NVR; use Fluent quality to start. No TV installation or Samsung signing is needed for this browser preview.
+Open http://127.0.0.1:4173/?connect=1 in a Chromium browser. Setup asks only for your **NVR IP address, username, and password**. Entering an IP address assumes HTTPS, including an optional custom port (for example, `192.168.1.100:8443`). An explicit `http://` address is still accepted for recorders configured for HTTP. Select **Connect**. The preview automatically checks the Reolink API before sending your login and switches to HTTPS if the same recorder requires it. Local NVR certificates are always accepted automatically, with no approval panel or extra click. Enable HTTP or HTTPS and RTMP on the NVR. Channel and RTMP-port detection, Fluent quality, and automatic stream sign-in are the defaults. No TV installation or Samsung signing is needed for this browser preview.
 
-The dashboard displays current snapshots from your cameras. Select **Full screen** for simultaneous live feeds in the current layout, or select one camera to expand it. The same layout controls, favorites, and camera cycling work here.
+With an empty address, setup automatically searches for about four seconds. **Find NVR / Search again** repeats the search. One identified recorder fills the IP field; multiple recorders appear as choices. Existing or newly typed addresses stay untouched. Reolink devices that do not advertise an identifiable NVR model remain selectable without being automatically chosen. Enable **ONVIF** on the recorder and keep it on the same LAN as the computer or TV; discovery uses ONVIF multicast, not Reolink cloud discovery. The TV scans directly using its bundled Samsung socket module and needs no Mac or preview server. Discovery sends no login credentials, does not approve certificates, and assumes HTTPS port 443; enter a custom web port manually when needed.
 
-The preview server relays Reolink API, snapshot, and HTTP-FLV requests between the browser and your local NVR, avoiding browser cross-origin restrictions. Live video uses one WebSocket per feed so long-running streams do not exhaust the browser's HTTP connection pool or block API requests. The server listens only on loopback, requires a per-run key and matching origin, and accepts only local destinations and Reolink endpoints. Credentialed requests never follow redirects. The server does not log or save NVR credentials. Password persistence in the browser remains opt-in. Keep `npm run dev` running while using the preview. The packaged TV app connects directly and does not need this server. Restart the preview server and reload the page after updating to 0.1.9.
+The dashboard shows still snapshots of its visible online cameras, refreshed every five seconds by default. Select **Full screen** to start muted Fluent live streams for the current layout, or select one camera to watch it live. Exiting fullscreen stops the grid streams and resumes snapshots. The same layout controls, favorites, and camera cycling work here.
 
-Certificate approval applies to **one exact HTTPS address, port, and certificate fingerprint**, lasts only until the preview server stops, and does not modify your computer's trust store. The review step performs a TLS handshake without sending an HTTP request or login. After explicit approval, NVR requests validate the approved certificate and its expiry, and reject a changed certificate before transmitting login data. Certificates that are expired or not yet valid cannot be approved. This approval flow belongs to the desktop preview; the installed TV must separately trust the recorder's HTTPS certificate or use its enabled HTTP service.
+The preview server relays Reolink API, snapshot, and HTTP-FLV requests between the browser and your local NVR, avoiding browser cross-origin restrictions. Live video uses one WebSocket per feed so long-running streams do not exhaust the browser's HTTP connection pool or block API requests. The server listens only on loopback, requires a per-run key and matching origin, and accepts only local destinations and Reolink endpoints. Credentialed requests never follow redirects. The server does not log or save NVR credentials. Passwords stay in memory by default; an existing saved-password preference is preserved. Keep `npm run dev` running while using the preview. The packaged TV app connects directly and does not need this server. Restart the preview server and reload the page after updating the server code.
+
+The desktop preview **always accepts certificates for local NVR HTTPS requests**, including self-signed, changed, expired, not-yet-valid, and hostname-mismatched certificates. HTTPS traffic remains encrypted, but the recorder's identity is not authenticated through its certificate. This applies only to the preview's validated local Reolink endpoints; public destinations remain blocked, and the OS trust store and ordinary Node HTTPS requests are unchanged. No fingerprint approval or persistence is required. The installed TV uses its platform's HTTPS handling, so it still needs a TV-trusted certificate or the recorder's enabled HTTP service.
 
 If connecting reports **502**, the preview could not complete the NVR request; that status alone does not mean the password is wrong. Version 0.1.5 shows separate messages for a refused port, an untrusted HTTPS certificate, a hostname lookup failure, a network timeout, and a protocol mismatch. After updating, stop the old server with **Ctrl+C**, run `npm run dev` again, and reload the preview. Use the NVR's enabled **HTTP/HTTPS** port from Network → Advanced → Server Settings, not its Basic Service or RTSP port. You can check that same address in a browser to see whether the recorder's own sign-in page loads.
 
@@ -64,9 +69,13 @@ Select **⛶ Full screen** beside the layout button, press **F** on a keyboard, 
 
 The floating controls provide a live-camera count, layout selection, page arrows, and **Exit full screen**, and disappear after five seconds of inactivity. Move the pointer or press an arrow key to reveal them. **Info** focuses the exit button; **CH + / −** changes grid pages. Select a camera to expand it and access sound/quality controls, then press **Back** to return to the same full-screen grid. Press **Back** again (or **F**, **Green**, or **Exit full screen**) to restore the dashboard. Browser **Escape** may also leave native fullscreen directly.
 
-Every online, awake tile plays its own **live Fluent (H.264 substream)** video with audio disabled. Changing pages, opening one camera, leaving fullscreen, or hiding the app releases streams that are no longer visible. Layout changes retain healthy streams for cameras that stay on screen. Failed tiles retry independently and then show **Unavailable**; **Retry unavailable** restarts only those feeds. Offline and sleeping cameras retain their status. Demo mode remains explicitly labeled illustrations.
+In fullscreen, every online, awake tile plays its own **live Fluent (H.264 substream)** video with audio disabled. Exiting fullscreen stops these streams and resumes snapshot previews. Changing pages, opening one camera, opening settings, or hiding the app releases streams that are no longer visible. Layout changes retain healthy streams for cameras that stay on screen. Failed tiles retry independently and then show **Unavailable**; **Retry unavailable** in fullscreen restarts only those feeds. Offline and sleeping cameras retain their status. Demo mode remains explicitly labeled illustrations.
 
-The browser was checked with 24 simultaneous decoded test feeds in a 25-tile layout. The physical S90C's decoder capacity and recorder connection limits have not been verified; 25 live cameras on the TV are not guaranteed. If feeds become unavailable, choose a smaller layout or open a camera on its own. Large live layouts consume more network bandwidth and decoding resources than the snapshot dashboard.
+Automatic stream sign-in remembers the method that returned a valid FLV video header for this recorder connection. If the first method is rejected, the other starts immediately. If it stays silent, the other starts after one second while the first connection remains available; the first valid video response wins and the unused connection closes. This avoids waiting through the full playback-stall timeout before trying a working sign-in. Only one decoder is created per camera. Other cameras and later visits start with the working method; explicit Session token / NVR credentials settings are honored. Interrupted established feeds retain their proven method and use the normal bounded retries. The remembered method is session-only and contains no credentials.
+
+Live playback catches up when its buffered delay exceeds 1.5 seconds, retaining half a second for smooth playback. This controls playback delay, not the recorder's time to send its first keyframe. The overview remains snapshot-only.
+
+The browser was checked with 24 simultaneous decoded test feeds in a 25-tile layout. The physical S90C's decoder capacity and recorder connection limits have not been verified; 25 live cameras on the TV are not guaranteed. If feeds become unavailable, choose a smaller layout or open a camera on its own. Larger fullscreen layouts use more bandwidth and decoding resources; the dashboard uses snapshots only.
 
 ## Build and install
 
@@ -76,7 +85,7 @@ npm run package
 npm run doctor
 ```
 
-Builds `dist/`, `artifacts/ReolinkTV-unsigned.wgt`, and `artifacts/ReolinkTV-source.zip`. Packaging requires Python 3.
+Builds `dist/`, `artifacts/ReolinkTV-unsigned.wgt`, and `artifacts/ReolinkTV-source.zip`. Packaging requires Python 3 and the compiled TV discovery module. Build that once with `npm run build:discovery` using Samsung Emscripten as described in the installation guide. With `SAMSUNG_EMCC` set, packaging/signing can rebuild a missing or stale module automatically. Plain `npm run build` remains available for browser preview without that compiler and reports when TV discovery is absent.
 
 After installing Tizen Studio and creating a Samsung TV certificate profile:
 
@@ -95,9 +104,9 @@ Enable **HTTP or trusted HTTPS** and **RTMP** under the NVR's network/server set
 
 Reolink documents HTTP-FLV for H.264 streams. Many 8MP/12MP cameras use H.265 for their main stream, so their highest-resolution Clear stream is outside this version's reliable direct-streaming path. The app falls back to the H.264 substream. It does not change the camera's recording resolution.
 
-Automatic stream authentication first tries the API session token, then the documented username/password FLV URL for firmware that needs it. You can select either mode in Connection options. Firmware behavior with special characters in legacy FLV credentials needs device testing; credentials are URL-encoded, never concatenated without escaping.
+Automatic stream authentication first tries the API session token, then the documented username/password FLV URL for firmware that needs it. Previously saved connection preferences are preserved when reconnecting through the simplified form. Firmware behavior with special characters in legacy FLV credentials needs device testing; credentials are URL-encoded, never concatenated without escaping.
 
-This version does **not** implement recording playback, two-way talk, PTZ, push notifications, or an RTSP/HEVC relay. The dashboard uses refreshed still images with two snapshot requests at a time; fullscreen uses live streams. Battery cameras asleep on the NVR are shown as sleeping and are not polled or streamed until reported awake.
+This version does **not** implement recording playback, two-way talk, PTZ, push notifications, or an RTSP/HEVC relay. The dashboard uses snapshots; fullscreen uses live streams. Battery cameras asleep on the NVR are shown as sleeping and are not streamed until reported awake.
 
 ## Remote
 
@@ -120,7 +129,7 @@ On the TV, select a text field to open editing and use Done/Back to return to na
 
 Credentials go only to the NVR address you enter. The API login uses a POST body; video uses a token when supported. Legacy FLV authentication necessarily places credentials in the request query string. Player library logging is disabled to avoid printing those URLs.
 
-Passwords stay in memory by default. **Remember password on this TV** is opt-in and stores the password in app-local storage, not an encrypted credential vault. Use a dedicated view-only NVR account if your firmware supports one. Settings → Connection options → Forget saved connection removes saved data. Plain HTTP is unencrypted; use it only on your trusted LAN. The desktop preview supports explicit certificate approval as described above. Self-signed HTTPS certificates may still be rejected by the installed TV app; desktop approval does not change TV trust settings.
+Passwords stay in memory by default. If you previously opted into remembering a password, that preference is preserved in app-local storage, not an encrypted credential vault. Use a dedicated view-only NVR account if your firmware supports one. Plain HTTP is unencrypted; use it only on your trusted LAN. The desktop preview automatically accepts local NVR certificates as described above. Self-signed HTTPS certificates may still be rejected by the installed TV app; the preview's behavior does not change TV trust settings.
 
 ## Project structure
 
@@ -128,6 +137,10 @@ Passwords stay in memory by default. **Remember password on this TV** is opt-in 
 | --- | --- |
 | `app/` | Complete packaged TV application |
 | `app/js/api.js` | Reolink login, discovery, snapshots, stream URLs |
+| `app/js/discovery*.js` | ONVIF parsing, setup controls, browser transport and TV worker |
+| `native/discovery.c` | TV UDP sockets via Samsung's Emscripten extension |
+| `scripts/discovery.mjs` | Protected desktop LAN discovery endpoint |
+| `scripts/build-discovery.mjs` | Builds and verifies the bundled TV socket runtime |
 | `app/js/player.js` | Per-camera decoder lifecycle and bounded reconnects |
 | `app/js/live-grid.js` | Visible live-camera reconciliation and independent retries |
 | `app/js/preview-stream.js` | Browser WebSocket-to-stream adapter |
@@ -145,6 +158,8 @@ Passwords stay in memory by default. **Remember password on this TV** is opt-in 
 - [Samsung TV general specifications](https://developer.samsung.com/smarttv/develop/specifications/general-specifications.html)
 - [Samsung TV device / Developer Mode setup](https://developer.samsung.com/smarttv/develop/getting-started/using-sdk/tv-device.html)
 - [Samsung TV CLI build, signing, installation](https://developer.samsung.com/smarttv/develop/getting-started/using-sdk/command-line-interface.html)
+- [Samsung Tizen Sockets Extension](https://developer.samsung.com/smarttv/develop/extension-libraries/webassembly/tizen-sockets-extension/tizen-sockets-extension.html)
+- [ONVIF Core specification (discovery)](https://www.onvif.org/specs/core/ONVIF-Core-Specification.pdf)
 - [mpegts.js source and API](https://github.com/xqq/mpegts.js)
 
 Project code is MIT licensed. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for bundled software.

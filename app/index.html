@@ -12,7 +12,6 @@
   <div id="stage">
     <header class="header" id="header">
       <div class="brand"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span><span>reolink<span class="brand-tv">TV</span></span></div>
-      <div class="header-right"><span id="connection" class="connection"><i></i> Your home, in view</span><time id="clock"></time></div>
     </header>
 
     <main id="dashboard" hidden>
@@ -28,7 +27,7 @@
           <button id="settings-button" class="icon-button" aria-label="Settings">⚙ <span>Settings</span></button>
         </nav>
       </div>
-      <div class="overview-caption"><span><i class="snapshot-dot"></i> Snapshot overview <span class="muted">· Full screen for live cameras</span></span><span id="overview-status"></span></div>
+      <div class="overview-caption"><span><i class="snapshot-dot"></i> <span id="overview-label">Snapshot overview</span> <span class="muted">· Full screen for live cameras</span></span><span id="overview-status"></span></div>
       <div id="camera-grid" class="camera-grid" aria-label="Cameras"></div>
       <div id="empty-state" class="empty-state" hidden><div class="empty-icon">☆</div><h2 id="empty-title">No favorites yet</h2><p id="empty-description">Open a camera and select Favorite to keep it here.</p><button id="empty-action" class="secondary">Show all cameras</button></div>
       <footer class="dashboard-footer">
@@ -48,48 +47,21 @@
     </main>
 
     <section id="settings" class="settings-screen" aria-labelledby="settings-title">
-      <aside class="welcome-panel">
-        <p class="eyebrow accent">MADE FOR THE BIG SCREEN</p>
-        <h1>Your cameras.<br>A bigger picture.</h1>
-        <p class="welcome-description">A quiet look at everything<br>that matters at home.</p>
-        <div class="welcome-diagram" aria-hidden="true"><div class="nvr-shape"><i></i><i></i><i></i><b></b></div><div class="connection-line"><i></i><i></i><i></i></div><div class="tv-shape"><span></span><span></span><span></span><span></span></div></div>
-        <p class="welcome-note">YOUR NVR <span>→</span> <span id="welcome-device">YOUR TV</span></p>
-        <p class="local-note">Connect over your home network.<br>No cloud account or subscription.</p>
-        <button id="demo-button" class="text-button">Explore the demo <span>↗</span></button>
-        <p class="independent-note">Independent app · Not affiliated with Reolink</p>
-      </aside>
       <div class="settings-card">
-        <div class="form-heading"><span class="step-badge">01</span><div><h2 id="settings-title">Connect your NVR</h2><p>Use the same login as your Reolink recorder.</p></div></div>
+        <div class="form-heading"><h2 id="settings-title">Connect your NVR</h2></div>
         <form id="connection-form" autocomplete="off">
           <div class="form-scroll">
-            <label for="address">NVR address</label><input id="address" name="address" type="text" placeholder="192.168.1.100" spellcheck="false" autocomplete="off" required>
-            <p class="field-help">Find it in Reolink → NVR settings → Network.</p>
-            <button type="button" id="check-address" class="secondary check-address" hidden>Check address</button>
-            <div id="certificate-review" class="certificate-review" role="region" aria-labelledby="certificate-title" hidden>
-              <h3 id="certificate-title">Approve your recorder’s certificate</h3>
-              <p>This recorder uses its own HTTPS certificate. Only approve if this is your NVR on your trusted home network.</p>
-              <strong id="certificate-address"></strong>
-              <p id="certificate-validity"></p>
-              <details><summary>SHA-256 certificate fingerprint</summary><code id="certificate-fingerprint"></code></details>
-              <p>Approval applies only to this address and certificate until the preview server stops. A changed certificate will block the connection again.</p>
-              <div class="certificate-actions"><button type="button" id="certificate-cancel" class="secondary">Cancel</button><button type="button" id="certificate-trust" class="primary">Trust this certificate</button></div>
+            <div class="form-field"><label for="address">NVR IP address</label><input id="address" name="address" type="text" placeholder="192.168.1.100" spellcheck="false" autocomplete="off" autocapitalize="none" required>
+              <div id="discovery" class="discovery" hidden>
+                <div class="discovery-heading"><p id="discovery-status" role="status" aria-live="polite"></p><button type="button" id="discover-button" class="text-button">Find NVR</button></div>
+                <div id="discovery-results" class="discovery-results" aria-label="Discovered devices"></div>
+              </div>
             </div>
-            <p id="form-status" class="form-notice" role="status" hidden></p>
-            <div class="form-row"><div><label for="username">Username</label><input id="username" name="username" type="text" value="admin" autocomplete="off" spellcheck="false" required></div><div><label for="password">Password</label><div class="password-field"><input id="password" name="password" type="password" autocomplete="off" required><button type="button" id="show-password" aria-label="Show password">Show</button></div></div></div>
-            <label class="checkbox-row"><input type="checkbox" id="remember"><span><span id="remember-label">Remember password on this TV</span><small>Saved in this app’s local data. Leave off for session-only access.</small></span></label>
-            <button type="button" id="advanced-toggle" class="options-toggle" aria-expanded="false" aria-controls="advanced">Connection options <span>＋</span></button>
-            <div id="advanced" class="advanced" hidden>
-              <div class="form-row"><div><label for="quality">Live video quality</label><select id="quality"><option value="sub">Fluent · Most compatible</option><option value="ext">Balanced · If available</option><option value="main">Clear · H.264 only</option></select></div><div><label for="stream-auth">Stream sign-in</label><select id="stream-auth"><option value="auto">Automatic</option><option value="token">Session token</option><option value="credentials">NVR credentials</option></select></div></div>
-              <p class="field-help">Automatic tries a session token, then credentials for older firmware. Clear requires an H.264 main stream.</p>
-              <div class="form-row"><div><label for="channel-count">Manual channel count</label><input id="channel-count" type="number" min="0" max="64" value="0"></div><div><label for="rtmp-port">RTMP port override</label><input id="rtmp-port" type="number" min="0" max="65535" value="0"></div></div>
-              <p class="field-help">Leave both at 0 for automatic detection.</p>
-              <div class="form-row"><div><label for="refresh">Snapshot interval</label><select id="refresh"><option value="3">3 seconds</option><option value="5">5 seconds</option><option value="10">10 seconds</option></select></div><div><label for="cycle">Camera cycle interval</label><select id="cycle"><option value="10">10 seconds</option><option value="20">20 seconds</option><option value="30">30 seconds</option><option value="60">60 seconds</option></select></div></div>
-              <button type="button" id="forget-button" class="text-button danger">Forget saved connection</button>
-            </div>
-            <div class="setup-tip"><span>ⓘ</span><p>Enable <strong>HTTP</strong> and <strong>RTMP</strong> in the NVR’s Network → Advanced → Server Settings. Connect <span id="setup-device">the TV</span> and NVR to the same network.</p></div>
+            <div class="form-field"><label for="username">Username</label><input id="username" name="username" type="text" value="admin" autocomplete="off" autocapitalize="none" spellcheck="false" required></div>
+            <div class="form-field"><label for="password">Password</label><div class="password-field"><input id="password" name="password" type="password" autocomplete="off" required><button type="button" id="show-password" aria-label="Show password">Show</button></div></div>
             <p id="form-error" class="form-error" role="alert" hidden></p>
           </div>
-          <div class="form-actions"><button type="button" id="settings-cancel" class="secondary" hidden>Cancel</button><button type="submit" id="connect-button" class="primary">Connect to NVR <span>→</span></button></div>
+          <div class="form-actions"><button type="button" id="settings-cancel" class="secondary" hidden>Cancel</button><button type="submit" id="connect-button" class="primary">Connect</button></div>
         </form>
       </div>
     </section>

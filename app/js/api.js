@@ -11,7 +11,7 @@ export function normalizeAddress(input) {
   const text = String(input || '').trim();
   if (!text) throw new NvrError('Enter your NVR’s local IP address.', 'settings');
   let url;
-  try { url = new URL(text.includes('://') ? text : `http://${text}`); }
+  try { url = new URL(text.includes('://') ? text : `https://${text}`); }
   catch (_) { throw new NvrError('Enter an IP address or hostname, with an optional port.', 'settings'); }
   if (!['http:', 'https:'].includes(url.protocol) || !url.hostname || url.username || url.password ||
       url.search || url.hash || url.pathname !== '/') {
@@ -22,7 +22,7 @@ export function normalizeAddress(input) {
 
 export function normalizeChannels(value) {
   const raw = value?.status || value?.Status || value?.Channelstatus?.status;
-  if (!Array.isArray(raw)) throw new NvrError('This NVR did not return a camera list. Try manual channel count in Connection options.', 'channels');
+  if (!Array.isArray(raw)) throw new NvrError('This NVR did not return a camera list. Check that this account has permission to view its cameras.', 'channels');
   const seen = new Set();
   return raw.filter(item => {
     const id = Number(item.channel);

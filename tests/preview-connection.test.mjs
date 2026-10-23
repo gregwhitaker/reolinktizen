@@ -2,27 +2,33 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createPreviewConnection } from '../app/js/preview-connection.js';
 
-test('connection check upgrades the same recorder to HTTPS and requests review without sending a password or approving trust', async () => {
+test('connection check upgrades to HTTPS and continues without certificate approval or sending a password', async () => {
   const calls = [];
   const checker = createPreviewConnection({ key: 'preview-key', origin: 'http://127.0.0.1:4173', fetchImpl: async (url, options) => {
     calls.push({ url: new URL(url), options });
-    if (url.includes('/certificate/inspect')) {
-      assert.deepEqual(JSON.parse(options.body), { address: 'https://192.168.1.100' });
-      return Response.json({ address: 'https://192.168.1.100', fingerprint: 'test-fingerprint', valid: true });
-    }
+    assert.equal(new URL(url).pathname, '/__nvr');
     const target = new URL(new URL(url).searchParams.get('target'));
     assert.equal(target.searchParams.get('cmd'), 'GetDevInfo');
     assert.equal(options.body, undefined);
     if (target.protocol === 'http:') return new Response(JSON.stringify({ error: 'HTTPS required.', address: 'https://192.168.1.100' }),
       { status: 502, headers: { 'X-Reolink-Preview-Error': 'NVR_HTTPS_REDIRECT', 'Content-Type': 'application/json' } });
-    return new Response(JSON.stringify({ error: 'Certificate approval required.' }),
-      { status: 502, headers: { 'X-Reolink-Preview-Error': 'NVR_CERTIFICATE', 'Content-Type': 'application/json' } });
+    return Response.json([{ code: 1, error: { rspCode: -6 } }]);
   } });
-  const result = await checker.check('192.168.1.100');
-  assert.equal(result.address, 'https://192.168.1.100');
-  assert.equal(result.certificate.fingerprint, 'test-fingerprint');
-  assert.equal(calls.length, 3);
-  assert.equal(calls.some(call => call.url.pathname.endsWith('/trust')), false);
+  const result = await checker.check('http://192.168.1.100');
+  assert.deepEqual(result, { address: 'https://192.168.1.100' });
+  assert.equal(calls.length, 2);
+});
+
+test('an older preview server gives restart guidance instead of reviving certificate approval', async () => {
+  for (const code of ['NVR_CERTIFICATE', 'NVR_CERTIFICATE_CHANGED']) {
+    let calls = 0;
+    const checker = createPreviewConnection({ key: 'key', origin: 'http://127.0.0.1:4173', fetchImpl: async url => {
+      calls++; assert.equal(new URL(url).pathname, '/__nvr');
+      return Response.json({ error: 'Legacy certificate approval required.' }, { status: 502, headers: { 'X-Reolink-Preview-Error': code } });
+    } });
+    await assert.rejects(checker.check('192.168.1.100'), /Restart npm run dev/);
+    assert.equal(calls, 1);
+  }
 });
 
 test('connection check accepts an unauthenticated Reolink response and handles the older CGI path', async () => {

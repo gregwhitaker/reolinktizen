@@ -3,6 +3,7 @@ import { resolve, dirname, join, basename } from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
+import { checkDiscovery } from './build-discovery.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const appId = 'ReolinkTV1.Viewer';
@@ -36,6 +37,8 @@ try {
   if (command === 'doctor') {
     console.log(`Tizen CLI: ${tizen || 'not installed'}`);
     console.log(`SDB: ${sdb || 'not installed'}`);
+    const discovery = await checkDiscovery(root);
+    console.log(`TV discovery: ${discovery.ready ? 'bundled' : discovery.message}`);
     console.log(`Built app: ${existsSync(resolve(root, 'dist/config.xml')) ? 'yes' : 'run npm run build'}`);
     console.log('Next: npm run sign -- --profile YOUR_SAMSUNG_PROFILE');
     console.log('Then: npm run install:tv -- --tv TV_IP');
@@ -44,7 +47,7 @@ try {
     requireTizen();
     const profile = option('--profile') || process.env.TIZEN_PROFILE;
     if (!profile || profile.startsWith('-')) throw new Error('Pass --profile with the Samsung TV certificate profile name from Certificate Manager.');
-    run(process.execPath, [resolve(root, 'scripts/build.mjs')]);
+    run(process.execPath, [resolve(root, 'scripts/build.mjs'), '--tv']);
     run(tizen, ['package', '-t', 'wgt', '-s', profile, '--', resolve(root, 'dist')]);
     const files = readdirSync(resolve(root, 'dist')).filter(file => file.endsWith('.wgt'));
     if (files.length !== 1) throw new Error('Expected one signed widget in dist/. Check the Tizen CLI output.');

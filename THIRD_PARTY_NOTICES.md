@@ -16,4 +16,12 @@ The unmodified npm distribution was verified against the registry's SHA-512 inte
 `sha512-Ydggc987+RO0AnWtZ/7Wq9FtNvcrL1b/RO0ud9mWjUPgDrsAAwQSF51sm2hm1XofbU/4jkpGEsLFsZZxU+1DOg==`.
 
 All camera illustrations in demo mode are generated locally by this project and clearly labeled.
+
+Building TV discovery with **Samsung Emscripten SDK 1.39.4.7** generates JavaScript
+and WebAssembly runtime files under `app/vendor/discovery/`. The build copies the
+SDK's original `LICENSE` into that directory and packages it with the runtime.
+Samsung's fork is required for Tizen native sockets; it is obtained separately
+from https://developer.samsung.com/smarttv/develop/extension-libraries/webassembly/download.html.
+The generated runtime is not present until `npm run build:discovery` succeeds.
+
 Reolink and Samsung are trademarks of their respective owners. This is an independent project.

@@ -36,14 +36,6 @@ export function previewAuthorized(req, key) {
     (!req.headers['sec-fetch-site'] || ['same-origin', 'none'].includes(req.headers['sec-fetch-site']));
 }
 
-export function localOrigin(input) {
-  const url = new URL(input);
-  const host = url.hostname.replace(/^\[|\]$/g, '');
-  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.hash || url.search ||
-      url.pathname !== '/' || (isIP(host) && !isLocalAddress(host))) throw new Error('Invalid local address.');
-  return url;
-}
-
 export function bridgeFailure(res, status, code, message, details = {}) {
   if (res.destroyed || res.writableEnded) return;
   if (res.headersSent) { res.destroy(); return; }
@@ -61,9 +53,8 @@ export function connectionFailure(error) {
   if (has('DEPTH_ZERO_SELF_SIGNED_CERT', 'SELF_SIGNED_CERT_IN_CHAIN', 'UNABLE_TO_VERIFY_LEAF_SIGNATURE',
     'UNABLE_TO_GET_ISSUER_CERT', 'UNABLE_TO_GET_ISSUER_CERT_LOCALLY', 'CERT_HAS_EXPIRED',
     'CERT_NOT_YET_VALID', 'ERR_TLS_CERT_ALTNAME_INVALID', 'CERT_REVOKED')) {
-    return { code: 'NVR_CERTIFICATE', message: 'The recorder’s HTTPS certificate needs your approval before sign-in.' };
+    return { code: 'NVR_CERTIFICATE', message: 'The recorder’s HTTPS certificate was rejected. Restart npm run dev and reload the page to use automatic certificate acceptance.' };
   }
-  if (has('NVR_PIN_CHANGED')) return { code: 'NVR_CERTIFICATE_CHANGED', message: 'The recorder’s certificate has changed. Review it again before signing in.' };
   if (has('ENOTFOUND', 'EAI_AGAIN')) {
     return { code: 'NVR_DNS', message: 'The NVR hostname could not be found. Enter its local IP address from Reolink → NVR settings → Network.' };
   }
@@ -118,7 +109,7 @@ export function redirectFailure(target, location) {
   return { code: 'NVR_REDIRECT', message: 'The recorder redirected back to the same API address. Check its HTTP/HTTPS settings and port; the preview stopped to avoid a redirect loop.' };
 }
 
-export async function bridgeNvr(req, res, requestUrl, key, certificates = null) {
+export async function bridgeNvr(req, res, requestUrl, key, { http = httpRequest, https = httpsRequest } = {}) {
   if (!previewAuthorized(req, key)) {
     bridgeFailure(res, 403, 'PREVIEW_SESSION', 'The local preview session is unavailable. Reload this page and connect again.'); return;
   }
@@ -148,11 +139,11 @@ export async function bridgeNvr(req, res, requestUrl, key, certificates = null) 
   }
   const body = Buffer.concat(chunks);
   if (req.method === 'POST') headers['content-length'] = body.length;
-  const upstream = (target.protocol === 'https:' ? httpsRequest : httpRequest)(target, {
+  const upstream = (target.protocol === 'https:' ? https : http)(target, {
     method: req.method, headers, lookup: localLookup, agent: false,
-    // A user-approved certificate is trusted only for this exact HTTPS origin.
-    // Chain/expiry checks remain enabled and the leaf fingerprint must match.
-    ...(target.protocol === 'https:' ? certificates?.options(target.origin) : {}),
+    // Always accept the local NVR's certificate, as requested. This is scoped
+    // to validated LAN destinations and this request, never process-wide TLS.
+    ...(target.protocol === 'https:' ? { rejectUnauthorized: false } : {}),
   }, response => {
     clearTimeout(connectionTimer);
     const status = response.statusCode || 502;
@@ -181,10 +172,6 @@ export async function bridgeNvr(req, res, requestUrl, key, certificates = null) 
   upstream.on('error', error => {
     clearTimeout(connectionTimer);
     const failure = connectionFailure(error);
-    if (failure.code === 'NVR_CERTIFICATE' && certificates?.has(target.origin)) {
-      failure.code = 'NVR_CERTIFICATE_CHANGED';
-      failure.message = 'The approved recorder certificate no longer validates. Review the certificate again before signing in.';
-    }
     bridgeFailure(res, 502, failure.code, failure.message);
   });
   upstream.end(body);

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <widget xmlns="http://www.w3.org/ns/widgets" xmlns:tizen="http://tizen.org/ns/widgets"
-  id="https://reolink-tv.local/app" version="0.1.9" viewmodes="maximized">
+  id="https://reolink-tv.local/app" version="0.1.10" viewmodes="maximized">
   <tizen:application id="ReolinkTV1.Viewer" package="ReolinkTV1" required_version="7.0" />
   <content src="index.html" />
   <name>Reolink TV</name>
@@ -15,5 +15,7 @@
   <tizen:setting screen-orientation="landscape" context-menu="disable"
     background-support="disable" encryption="disable" install-location="auto" hwkey-event="enable" />
   <tizen:metadata key="http://samsung.com/tv/metadata/screen.size" value="1920x1080" />
-  <tizen:content-security-policy>default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data: http: https:; media-src 'self' blob: http: https:; connect-src 'self' http: https:; object-src 'none'; worker-src 'self' blob:; base-uri 'self'; form-action 'none'</tizen:content-security-policy>
+  <!-- Tizen 7's Chromium 94 needs unsafe-eval to compile the bundled WebAssembly
+       socket module; it predates wasm-unsafe-eval. Scripts still load only locally. -->
+  <tizen:content-security-policy>default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self'; img-src 'self' blob: data: http: https:; media-src 'self' blob: http: https:; connect-src 'self' http: https:; object-src 'none'; worker-src 'self' blob:; base-uri 'self'; form-action 'none'</tizen:content-security-policy>
 </widget>

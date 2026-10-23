@@ -1,8 +1,10 @@
 # Validation — 22 October 2026
 
+Later changes and checks are appended below. The **Automatic local certificate acceptance** section supersedes the historical certificate-review behavior recorded here.
+
 ## Automated checks
 
-`npm test` runs Node's built-in test runner. Sixty-two tests cover:
+`npm test` runs Node's built-in test runner. Current tests cover:
 
 - Host/port validation and rejection of embedded credentials and URL paths.
 - Camera channel indexing, deduplication, offline status, and sleeping status.
@@ -40,18 +42,22 @@
 - Distinct handling of non-API redirects, missing locations, HTTPS downgrades, and redirect loops.
 - Automatic use of the existing legacy login fallback for a same-origin redirect to `/cgi-bin/api.cgi`.
 - Reolink's HTTP-to-HTTPS-home-page redirect, preserving the API origin during a credential-free check.
-- Address checks and certificate inspection never sending a password or granting approval automatically.
-- TLS inspection transmitting no HTTP data; an unapproved self-signed certificate blocking login.
-- Explicit approval bound to one HTTPS origin and certificate, with rejection after certificate replacement, a port change, or preview-server restart.
-- Certificate endpoints rejecting foreign origins, missing keys, nonlocal addresses, and unreviewed/mismatched approvals.
+- Address checks automatically upgrading HTTP to HTTPS and never sending a password.
+- Local HTTPS login, snapshots and FLV bytes over real TLS handshakes with self-signed, changed and expired certificates, without approval.
+- Automatic acceptance scoped to local NVR requests, with ordinary HTTPS verification still rejecting untrusted certificates.
+- Public destinations, foreign origins, missing keys and non-Reolink paths rejected before connecting.
 - Live grid reconciliation for up to 25 cameras, excluding offline/sleeping/demo tiles, retaining unchanged players and disposing removed ones.
 - Independent per-camera errors, retrying only failed feeds, and ignoring delayed callbacks after disposal.
 - Suppression of late stream URLs after leaving the grid, audio-free grid playback, bounded old video buffers, and event-listener cleanup.
 - Ignoring errors from obsolete decoders after a reconnect.
 - Twenty-five concurrent preview WebSocket streams delivering exact video bytes while API requests remain responsive.
 - WebSocket origin/key enforcement, existing target/redirect/header protections, and upstream cancellation before or after headers arrive.
+- Session-scoped reuse of proven stream authentication, isolation between clients, explicit mode overrides, and renegotiation of a remembered method.
+- Keeping established feeds on their working authentication method after interruption, and immediate initial authentication fallback without reconnect backoff.
+- Racing a silent initial stream sign-in after one second, retaining the original attempt until one returns a valid FLV header, preserving all received bytes, and cancelling the loser.
+- Fragmented headers, HTTP/non-video rejection, bounded startup deadlines, late response cleanup, cancellation before/during/after selection, explicit sign-in overrides, and decoder reuse during transport selection.
 
-All 62 tests passed with the host Node executable. The network tests require loopback listeners, which the command sandbox does not permit. HTTPS tests use disposable certificates and a fixture key stored under `tests/fixtures`, never a recorder's certificate or credentials. Test fixtures were not shown as real camera footage.
+The original 66 tests passed with the host Node executable during earlier validation. The network tests require loopback listeners, which the command sandbox does not permit. HTTPS tests use disposable certificates and a fixture key stored under `tests/fixtures`, never a recorder's certificate or credentials. Test fixtures were not shown as real camera footage. Current checks and their environment limitations are recorded below.
 
 ## Browser integration checks
 
@@ -113,6 +119,37 @@ Version 0.1.9 was checked in the in-app Chromium browser using a **25-channel si
 
 These are decoded synthetic test streams, not recordings or footage from the user's cameras. Physical S90C decoding and NVR concurrency limits remain unverified.
 
+The initial 0.1.10 implementation kept overview feeds live to remove the fullscreen cold start. The historical checks below describe that implementation; the snapshot correction following them supersedes its overview behavior. Network loading still starts without waiting for the media source to open; the bundled player's pending-segment queue handles that ordering.
+
+Browser checks used the continuously looped **25-channel simulator**, configured to reject token stream authentication:
+
+- The four-camera overview recovered through credential authentication and played all four feeds. Enlarging the layout started the other 20 online feeds directly with the proven method: token attempts stayed at four, credential attempts reached 24, and all 24 feeds played.
+- Before and after fullscreen entry, all 24 video elements retained their media-source URLs, remained live, and had advancing playback times. Exiting and entering again preserved those same sources and streams. The recorder still counted only 24 opened streams, establishing **zero reconnects for the fullscreen transitions**.
+- Offline camera 7 retained its status and no stream. No snapshot requests competed with live startup.
+- New streams still needed initial video data and decoding time; these checks establish continuity for fullscreen transitions, not instant first frames on a newly opened camera or performance on the user's recorder.
+
+The overview has since been restored to snapshots only, refreshing every five seconds by default. The later setup simplification removes the interval control while preserving saved preferences. Fullscreen entry starts grid streams; exit stops them and resumes snapshots. The single-camera viewer still plays live video.
+
+Validation of the snapshot correction:
+
+- All 53 tests that do not open local network listeners passed, and `npm run build` and `git diff --check` passed. The 13 network integration tests could not run because the execution sandbox rejects loopback listeners with `listen EPERM`.
+- A temporary in-memory application harness used the actual app code, fullscreen controller, live-grid controller, and snapshot poller with fake DOM/media boundaries. It verified zero live players on the overview, fullscreen live startup, stream disposal and snapshot resumption on exit, ignored late live events, snapshot-only overview resumption, and stream disposal when leaving the grid.
+- No new browser or physical-TV check was performed for this correction.
+
+The live-startup follow-up adds transport selection before the existing decoder. It races a silent sign-in after one second, validates the FLV header before selecting a stream, cancels the losing request, and retains the original request while the alternate starts. It also keeps grid videos renderable during connection and lowers the live catch-up threshold from three seconds to 1.5 seconds with the existing half-second buffer retained.
+
+An isolated in-app Chromium page exercised the actual baseline/current player, custom loader, and bundled decoder against synthetic FLV bytes paced in real time. Ten cameras were opened concurrently. These measurements isolate startup logic; they do not measure the user's NVR, Firefox, the local WebSocket bridge, or the physical TV.
+
+| Scenario | Before: all cameras showing frames / playing | After: all cameras showing frames / playing |
+| --- | --- | --- |
+| Normal stream | 156 ms / 378 ms | 135 ms / 375 ms |
+| Token connection returns no video; credentials work | 15,146 ms / 15,382 ms | 1,140 ms / 1,379 ms |
+| First keyframe arrives after a two-second gap | Not compared | 2,141 ms / 2,375 ms |
+
+Normal-stream differences are within browser timing variation; the significant improvement is recovery from a silent initial sign-in. A valid stream waiting for its next keyframe remains connected. The temporary benchmark page and baseline player copy were removed before building.
+
+All 66 tests that do not require network listeners passed, including 13 new startup/player tests. The other 13 tests were blocked by the sandbox's `listen EPERM` restriction. The production build and whitespace/syntax checks passed.
+
 Version 0.1.4 adds the local bridge for real-NVR browser use. The connection screen was opened with `?connect=1`, with the old simulator address cleared and automatic demo entry disabled. No real NVR login or video has been verified yet: the user must supply the recorder address and credentials in that screen.
 
 Version 0.1.5 preserves bridge diagnostics through the API client and distinguishes preview-session failures from NVR authentication failures. Initial connection/header waits are bounded to 6.5 seconds so the server can return a useful diagnostic before the client's own timeout. The existing local server responded with HTTP 200 during troubleshooting. The user's NVR address was not available, so the cause of their particular 502 and real-camera connectivity remain unverified. Browser inspection was blocked on the existing browser error page; no new visual check is claimed for this update.
@@ -151,3 +188,39 @@ ffmpeg -hide_banner -loglevel error -f lavfi -i 'testsrc2=size=640x360:rate=1' \
 In separate terminals run `npm run dev` and `node scripts/mock-nvr.mjs`. Open http://127.0.0.1:4173 and connect to `http://127.0.0.1:4174` with username `viewer` and password `demo`. Those are disposable simulator credentials. The simulator intentionally stops sending video after ten seconds while leaving the socket open, so the player eventually exercises its stalled-stream recovery path. It is bound to localhost and is not included in the TV widget.
 
 To exercise continuous live playback in the largest grid, start the simulator with `MOCK_CHANNEL_COUNT=25 MOCK_LOOP_VIDEO=1 node scripts/mock-nvr.mjs`, connect, and select **Full screen**. Loop mode rebases FLV timestamps and paces packets continuously. The simulator accepts 1–64 channels; the default remains eight. Without loop mode it retains the deliberate stalled-stream behavior described above.
+
+## Simplified setup and HTTPS default
+
+Setup now presents a centered form with only NVR IP address, username, password, and Connect. Address checks run automatically on connection, and certificate review appears only when required. Existing saved preferences are preserved; Forget saved connection remains available for an existing connection. Bare addresses default to HTTPS, while explicit HTTP addresses remain supported. HTTPS addresses are displayed without the protocol prefix.
+
+- All 20 API, preview-connection, and transport tests passed, including HTTPS defaults, explicit HTTP, custom ports, and IPv6. The production build and syntax/whitespace checks passed.
+- A temporary DOM harness executed the actual application modules with simulated API responses. It checked the three-field form, rejected and successful logins, reopening settings, password visibility reset, forgetting data, preservation of existing preferences, and the certificate approval flow before any login was sent.
+- A visual browser check could not run because the execution sandbox denied Chromium's process startup. No real NVR login or TV validation was performed for this change.
+- LAN discovery has since been implemented as described below.
+
+## LAN discovery: desktop and standalone TV
+
+Setup remains three fields. An empty address starts an ONVIF search; one identified Reolink NVR fills its IP, multiple recorders require selection, and unknown Reolink devices are available for manual selection. Existing addresses and user edits are preserved. Discovery assumes HTTPS on port 443 rather than using the advertised ONVIF service port, sends no credentials and never approves TLS certificates.
+
+The preview server probes private IPv4 LAN interfaces with UDP multicast (three probes over 3.5 seconds). Its endpoint requires the preview session key and origin checks, accepts no targets/body/credentials, allows one active scan, and cancels when the requesting connection closes. Replies must relate to the current probe, identify Reolink, and advertise an IP matching the UDP sender. Duplicate, unrelated, public-address and malformed replies are ignored.
+
+The installed TV has a separate worker transport backed by `native/discovery.c` and Samsung's Emscripten Tizen Sockets Extension. It requires no preview key, Mac or server. The worker polls nonblocking UDP sockets with bounded work per tick, closes on completion/error/cancellation, and has a parent-side timeout. Setup cancels discovery before connecting, leaving setup, showing a modal, hiding or closing the app.
+
+Validation completed:
+
+- **25 new discovery tests passed**: protocol parsing/filtering, multi-interface multicast, retries, duplicate handling, endpoint protection, timeout/cancellation cleanup, TV socket-driver behavior, TV operation without desktop requests, selection, preservation of edits and stale-result rejection. Sockets and worker events in these tests are simulated; no LAN discovery is claimed from them.
+- **91 tests passed** across discovery and existing API/player/setup/transport suites. The 13 existing network integration tests were not rerun because this execution sandbox had already rejected their loopback listeners with `listen EPERM`.
+- A temporary jsdom/VM harness ran the actual app modules in desktop and simulated TV contexts. It checked three form inputs, automatic IP fill, no login during discovery, preservation of typed/saved custom-port addresses, TV worker creation without any desktop request, remote OK selecting a discovered recorder, page-hide cancellation and rejection of late results. This is a DOM behavior check, not a visual or physical-TV test.
+- `clang -Wall -Wextra -Werror -fsyntax-only native/discovery.c` passed using the host POSIX headers. This does not validate Samsung's headers or socket implementation.
+- `npm run build` passed for browser preview. `npm run package` correctly refused to produce a new TV widget without the native discovery runtime. `npm run doctor` reports the missing compiler/module and Tizen CLI. Generated runtime files, source hashes and the SDK license are required before packaging/signing.
+
+Outstanding release checks: **Samsung Emscripten 1.39.4.7 is not installed, and the command environment cannot resolve the SDK download host. The native runtime has not been compiled. No new installable TV artifact was produced.** Follow the compiler setup in INSTALL.md, compile the module, then sign/install and validate multicast discovery, ONVIF scope/model identification, cancellation, and remote navigation on the actual S90C/NVR. Real LAN packets, SDK compilation, WASM/CSP behavior and hardware playback were not validated here. A visual browser check also remains unavailable due to the previously recorded browser-process sandbox restriction.
+
+## Automatic local certificate acceptance
+
+At the user's request, the desktop preview now always accepts the local NVR's HTTPS certificate. This replaces the earlier manual review and fingerprint approval flow entirely, including for changed or expired certificates. The approval panel, certificate endpoints and in-memory trust manager have been removed. TLS remains encrypted; certificate identity and validity are not verified for these local Reolink requests. The relaxation is set on each validated local HTTPS request, with the existing origin/key, destination, DNS and redirect restrictions retained. The OS trust store and global Node TLS configuration are unchanged. The installed TV continues using its platform's HTTPS handling.
+
+- **96 runnable tests passed**, including four certificate regression tests using real TLS handshakes over in-memory duplex streams. They verify login, JPEG and FLV responses with self-signed certificates; acceptance after replacement or expiry; ordinary HTTPS still rejecting untrusted/expired certificates; and rejection of public destinations, foreign origins and missing preview keys before connecting.
+- The remaining 11 existing HTTP/WebSocket listener integration tests were not rerun because this execution environment previously rejected their loopback listeners. The TLS tests now need no listener, and do not contact any real recorder.
+- A temporary DOM harness executed the actual app modules and verified that one Connect submission reaches the camera grid with simulated API responses, without certificate requests, an approval panel or a second click. It also checked that the removed header clock and Forget saved connection button remain absent.
+- `npm run build`, modified JavaScript syntax checks and `git diff --check` passed. The user must stop the old preview server, run `npm run dev` again and reload the page to activate the new server behavior. An older running preview receives explicit restart guidance rather than reopening certificate review.

@@ -2,9 +2,11 @@
 
 ## Preview your cameras before TV installation
 
-Run `npm run dev` from the project directory, then open http://127.0.0.1:4173/?connect=1 on this computer. Enter your NVR's local address and select **Check address**. If the recorder requires HTTPS, the address updates automatically. If its certificate needs approval, review the recorder address and fingerprint and select **Trust this certificate** only for your own recorder on your trusted home network. Then enter the recorder login and connect. Approval lasts until the preview server stops and applies only to that address, port, and certificate. No password is sent during the address/certificate check.
+Run `npm run dev` from the project directory, then open http://127.0.0.1:4173/?connect=1 on this computer. Enter your NVR IP address, username, and password, then select **Connect**. HTTPS is assumed; you do not need to type `https://`. The address check runs automatically. If the recorder requires HTTPS, the address updates automatically. The preview always accepts local NVR certificates, including changed or expired ones, and continues directly to login without an approval message. No password is sent during the initial address check. HTTPS remains encrypted, but certificate identity and validity are not verified for these local NVR requests.
 
-The browser preview uses the real NVR for snapshots and live video, including simultaneous feeds in the full-screen grid; it does not need Samsung signing. Leave the preview server running and keep the computer on the NVR's network. The local bridge is included so the NVR does not need to support browser CORS headers. Restart `npm run dev` and reload the page after updating the server code.
+The browser preview uses the real NVR for overview snapshots and full-screen live video; it does not need Samsung signing. Leave the preview server running and keep the computer on the NVR's network. The local bridge is included so the NVR does not need to support browser CORS headers. Restart `npm run dev` and reload the page after updating the server code.
+
+An empty IP field starts a short LAN search automatically. One identified NVR fills the field; otherwise select a discovered device or type the IP. **Search again** retries. Searches preserve saved and typed addresses and send no credentials. Enable ONVIF on the NVR for discovery; discovery itself does not use HTTPS. The desktop preview accepts local NVR certificates automatically; the installed TV retains its platform's HTTPS handling.
 
 ## 1. Prepare the recorder
 
@@ -12,7 +14,8 @@ The browser preview uses the real NVR for snapshots and live video, including si
 2. Enable HTTP (or HTTPS with a certificate trusted by the TV) and RTMP in **Network → Advanced → Server Settings**. Depending on firmware, these settings may appear as a Ports page.
 3. Note the HTTP/HTTPS port if it is not the default 80/443. You can enter `http://192.168.1.100:8080` in the TV app.
 4. Use the **NVR's** username/password, not individual camera logins and not your Reolink cloud-account password.
-5. Start with Fluent video. The app will read the NVR's RTMP port when permitted; Connection options also has an override.
+5. The app starts with Fluent video and reads the NVR's RTMP port when permitted.
+6. Enable **ONVIF** in Server Settings for automatic discovery. UDP multicast on port 3702 must reach the recorder on the same LAN. Its ONVIF service port (often 8000) is separate from its HTTPS web port; the app does not substitute that port for HTTPS.
 
 The TV only needs to reach the NVR. PoE cameras on the NVR's private camera network do not have to be individually reachable from the TV. Guest-Wi-Fi/client isolation can prevent access.
 
@@ -29,6 +32,24 @@ npm run doctor
 ```
 
 It also detects the SDB binary at `~/s90c-root/data/tools/sdb` if already present. Having SDB alone is not sufficient to sign an app.
+
+### Build the TV's discovery module
+
+The TV uses Samsung's **Tizen Sockets Extension** in a Web Worker to send and receive ONVIF UDP packets directly. It does not call the desktop preview for discovery. The installed app needs the compiled runtime, but the TV needs no compiler or external server.
+
+Install **Samsung Emscripten SDK 1.39.4.7** for your build computer from [Samsung's download page](https://developer.samsung.com/smarttv/develop/extension-libraries/webassembly/download.html), then [activate the SDK](https://developer.samsung.com/smarttv/develop/extension-libraries/webassembly/getting-started/downloading-and-installing.html) with `./emsdk activate latest-fastcomp` in the extracted `emscripten-release-bundle/emsdk` directory. Stock Emscripten does not include Samsung's native socket extension.
+
+From this project:
+
+```sh
+export SAMSUNG_EMCC="/absolute/path/to/emscripten-release-bundle/emsdk/fastcomp/emscripten/emcc"
+npm run build:discovery
+npm run package
+```
+
+The build writes `tizen-discovery.js`, `tizen-discovery.wasm`, the SDK's license, and a source/output hash manifest into `app/vendor/discovery/`. Include these generated files when distributing the app. Packaging and signing verify the manifest and rebuild changed/missing output if `SAMSUNG_EMCC` is set; otherwise they stop with setup instructions. This prevents producing a widget that silently omits TV discovery. Run this step before importing `app/` directly into the IDE, too.
+
+The compiler was unavailable in the implementation environment, so the native module has **not yet been compiled or validated on a TV**. The C source passes a host Clang syntax check, and the worker transport is covered by simulated socket tests. Tizen 7's older Chromium needs `unsafe-eval` in the widget's script policy to compile WebAssembly; scripts still load only from the app package. Actual compilation, signing, discovery and remote navigation on the S90C remain release checks.
 
 ## 3. Connect the TV in Developer Mode
 
@@ -71,22 +92,26 @@ For manual IDE use, import `app/` as an existing Tizen web application, select t
 
 ## 6. Connect in the app
 
-Enter the NVR address, username, and password. Select **Connect to NVR**. The app discovers channels and opens the snapshot overview. Select **Full screen** for a live grid, or select a camera to view it alone. The live grid uses muted Fluent streams; choose a smaller layout if the TV or NVR cannot sustain all visible feeds. Actual S90C multi-stream capacity still needs hardware testing. Password persistence is off by default; enable it only if you want it stored in this TV app's local data.
+Enter the NVR IP address, username, and password. HTTPS is assumed. Select **Connect**. The app discovers channels and shows snapshot previews, refreshed every five seconds by default. Select **Full screen** to start muted Fluent streams for the grid, or select a camera to watch it live on its own. Exiting fullscreen stops the grid streams and resumes snapshots. Choose a smaller fullscreen layout if the TV or NVR cannot sustain all visible feeds. Actual S90C multi-stream capacity still needs hardware testing. Passwords stay in memory by default; any previously saved password preference is preserved.
+
+The TV searches automatically when the address is blank. Use the remote arrows and OK to choose a discovered recorder or **Search again**. A single identified recorder fills the address without moving focus. You can always enter the IP yourself. Searches stop when connecting, leaving setup, or hiding the app.
 
 ## Troubleshooting
 
 | Symptom | Action |
 | --- | --- |
 | Cannot reach NVR | Confirm IP, HTTP/HTTPS port, same network, and enabled HTTP service. A cloud UID is not a LAN address. |
+| No NVR found | Enable ONVIF on the recorder, use the same LAN, and check multicast/client isolation. Recorders on another VLAN and ONVIF-disabled devices need manual IP entry. |
+| TV discovery could not start | Check the TV network connection and rebuild/reinstall with the Samsung discovery module. Browser preview alone does not supply the TV runtime. |
 | Browser preview reports 502 | Restart `npm run dev` after updating and reload the page for the specific error. Check the NVR's enabled HTTP/HTTPS port; 502 alone is not a password rejection. |
 | Preview session unavailable | Reload after restarting the preview server; each run has a new local connection key. |
 | NVR connection refused | Check the NVR address and its HTTP/HTTPS service in Server Settings. Use the configured web port, not Basic Service, RTSP, or RTMP. |
-| Recorder redirected the request | Check address automatically handles the same recorder's HTTP-to-HTTPS redirect, including redirects to its HTTPS home page. A known older CGI-path redirect is also handled automatically. |
+| Recorder redirected the request | Connecting automatically handles the same recorder's HTTP-to-HTTPS redirect, including redirects to its HTTPS home page. A known older CGI-path redirect is also handled automatically. |
 | Sign-in rejected | Use the local NVR login and check permissions. The app does not repeatedly retry an incorrect password. |
-| Browser asks to approve a certificate | Review the exact recorder address and certificate. Trusting it allows only that certificate for that HTTPS origin during the current preview-server session. A change requires a new approval. |
-| HTTPS fails on the installed TV | The TV must trust the NVR certificate. Desktop-preview approval does not carry over to the TV. Use a TV-trusted certificate or intentionally use the recorder's enabled HTTP service on your trusted LAN. |
-| No camera list | Enable manual channel count in Connection options; displayed channel 1 maps to Reolink API channel 0. |
-| Snapshot works but video fails | Enable RTMP on the NVR, check the RTMP port, use Fluent quality, and try NVR credentials under Stream sign-in. |
+| Browser still asks to approve a certificate | Stop the old preview server with Ctrl+C, run `npm run dev` again, and reload the page. The current preview always accepts local NVR certificates and has no approval panel. |
+| HTTPS fails on the installed TV | The TV must trust the NVR certificate. The desktop preview's automatic acceptance does not carry over to the TV. Use a TV-trusted certificate or intentionally use the recorder's enabled HTTP service on your trusted LAN. |
+| No camera list | Check that cameras appear in the NVR and that the account can view them; displayed channel 1 maps to Reolink API channel 0. |
+| Snapshot works but video fails | Enable RTMP on the NVR and use Fluent quality. Stream sign-in automatically tries token and credential authentication. |
 | Clear fails but Fluent plays | Your main stream may be H.265. This direct HTTP-FLV path targets H.264; do not lower NVR recording settings unless you want that separate change. |
 | Desktop connection is blocked but TV works | Use `npm run dev` and its local preview URL so the bridge handles CORS. Check the computer's network route, firewall, VPN, and terminal app's local-network access. |
 | Camera shows Sleeping | Wake a battery camera in Reolink and retry. The app avoids continuous polling of sleeping cameras. |

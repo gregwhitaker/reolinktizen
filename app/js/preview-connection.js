@@ -3,16 +3,6 @@ import { createNvrFetch } from './transport.js';
 
 export function createPreviewConnection({ key, origin, fetchImpl = globalThis.fetch.bind(globalThis) }) {
   const transport = createNvrFetch({ key, origin, fetchImpl });
-  async function certificate(action, body, signal) {
-    const response = await fetchImpl(new URL(`/__nvr/certificate/${action}`, origin).href, {
-      method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Reolink-Preview-Key': key },
-      body: JSON.stringify(body), signal, credentials: 'omit', referrerPolicy: 'no-referrer', cache: 'no-store'
-    });
-    if (response.status === 404) throw new NvrError('Restart npm run dev to enable certificate review, then reload this page.', 'preview');
-    const value = await response.json();
-    if (!response.ok) throw new NvrError(value.error || 'Certificate review failed. Check the address again.', 'preview', response.status);
-    return value;
-  }
   return {
     async check(input, signal) {
       let address = normalizeAddress(input);
@@ -32,13 +22,12 @@ export function createPreviewConnection({ key, origin, fetchImpl = globalThis.fe
           if (error.httpsAddress && address.startsWith('http:')) { address = error.httpsAddress; continue; }
           if (error.previewCode === 'NVR_LEGACY_API' && path === '/api.cgi') { path = '/cgi-bin/api.cgi'; continue; }
           if (['NVR_CERTIFICATE', 'NVR_CERTIFICATE_CHANGED'].includes(error.previewCode)) {
-            return { address, certificate: await certificate('inspect', { address }, signal) };
+            throw new NvrError('Restart npm run dev and reload this page to use automatic certificate acceptance.', 'preview');
           }
           throw error;
         }
       }
       throw new NvrError('The recorder keeps redirecting. Check its HTTPS address and port.', 'network');
-    },
-    trust: (address, fingerprint, signal) => certificate('trust', { address, fingerprint }, signal)
+    }
   };
 }

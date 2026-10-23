@@ -18,8 +18,11 @@ function createMock(handler) {
   return { fetch, calls };
 }
 
-test('addresses accept ports and IPv6, and reject embedded credentials and paths', () => {
-  assert.equal(normalizeAddress(' 192.168.1.100:8080 '), 'http://192.168.1.100:8080');
+test('addresses default to HTTPS, accept explicit HTTP, ports and IPv6, and reject embedded credentials and paths', () => {
+  assert.equal(normalizeAddress('192.168.1.100'), 'https://192.168.1.100');
+  assert.equal(normalizeAddress(' 192.168.1.100:8443 '), 'https://192.168.1.100:8443');
+  assert.equal(normalizeAddress('[fd00::1]'), 'https://[fd00::1]');
+  assert.equal(normalizeAddress('http://192.168.1.100:8080'), 'http://192.168.1.100:8080');
   assert.equal(normalizeAddress('https://nvr.local/'), 'https://nvr.local');
   assert.equal(normalizeAddress('http://[::1]:8000'), 'http://[::1]:8000');
   for (const input of ['', 'ftp://nvr', 'http://u:p@nvr', 'http://nvr/path', 'http://nvr/?token=abc', 'http://nvr/#x']) assert.throws(() => normalizeAddress(input));

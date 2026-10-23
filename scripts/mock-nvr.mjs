@@ -9,7 +9,7 @@ export async function mockNvr(port = 4174, { channelCount = 8, loopVideo = false
   if (!Number.isInteger(channelCount) || channelCount < 1 || channelCount > 64) throw new Error('Simulator channel count must be between 1 and 64.');
   const flv = await readFile(resolve(root, '.cache/test.flv'));
   const jpeg = await readFile(resolve(root, '.cache/snapshot.jpg'));
-  const metrics = { logins: 0, activeStreams: 0, openedStreams: 0, streamsByChannel: {}, snapshots: 0, rejectLogin: false, rejectTokenStreams: false };
+  const metrics = { logins: 0, activeStreams: 0, openedStreams: 0, tokenStreamAttempts: 0, credentialStreamAttempts: 0, streamsByChannel: {}, snapshots: 0, rejectLogin: false, rejectTokenStreams: false };
   const packets = [];
   if (loopVideo) {
     for (let offset = 13; offset + 15 <= flv.length;) {
@@ -28,6 +28,8 @@ export async function mockNvr(port = 4174, { channelCount = 8, loopVideo = false
     if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
     const url = new URL(req.url, `http://127.0.0.1:${port}`);
     if (url.pathname === '/flv') {
+      if (url.searchParams.has('token')) metrics.tokenStreamAttempts++;
+      else metrics.credentialStreamAttempts++;
       if (metrics.rejectTokenStreams && url.searchParams.has('token')) { res.writeHead(401); res.end(); return; }
       metrics.activeStreams++; metrics.openedStreams++;
       const channel = url.searchParams.get('stream') || 'unknown';

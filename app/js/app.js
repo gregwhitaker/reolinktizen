@@ -1,5 +1,5 @@
 import { ReolinkClient, normalizeAddress } from './api.js';
-import { readSettings, saveSettings, forgetSettings, DEFAULTS } from './storage.js';
+import { readSettings, saveSettings } from './storage.js';
 import { moveFocus, registerRemote } from './navigation.js';
 import { CameraPlayer } from './player.js';
 import { SnapshotPoller } from './snapshots.js';
@@ -9,13 +9,15 @@ import { createNvrFetch } from './transport.js';
 import { createPreviewConnection } from './preview-connection.js';
 import { GridFullscreen } from './fullscreen.js';
 import { LiveGrid } from './live-grid.js';
+import { createDiscovery } from './discovery.js';
+import { DiscoveryUI } from './discovery-ui.js';
 
 const $ = id => document.getElementById(id);
 const previewKey = document.querySelector('meta[name="reolink-preview-key"]')?.content || '';
 const previewStreamMode = document.querySelector('meta[name="reolink-preview-streams"]')?.content || '';
 const nvrFetch = createNvrFetch({ key: previewKey, origin: location.origin, streamMode: previewStreamMode });
 const previewConnection = previewKey ? createPreviewConnection({ key: previewKey, origin: location.origin }) : null;
-let previewController = null, pendingCertificate = null;
+let previewController = null;
 const QUALITY = { sub: 'Fluent', ext: 'Balanced', main: 'Clear' };
 let settings = readSettings();
 let client = null, candidate = null, poller = null;
@@ -27,6 +29,16 @@ let restoreFocus = null, dialogAction = null;
 let settingsBeforeDemo = null;
 let gridHideTimer = null, gridFocusId = null;
 const liveGrid = new LiveGrid(updateGridStream);
+const discovery = new DiscoveryUI({
+  root: $('discovery'), address: $('address'), status: $('discovery-status'),
+  results: $('discovery-results'), button: $('discover-button'),
+  scan: createDiscovery({ key: previewKey, origin: location.origin, isTV: Boolean(globalThis.tizen?.application) }),
+  onSelect: device => {
+    if (screen !== 'settings' || connecting) return;
+    $('address').value = device.ip;
+    $('address').dispatchEvent(new Event('input', { bubbles: true }));
+  }
+});
 
 const gridFullscreen = new GridFullscreen(document, active => {
   $('dashboard').classList.toggle('grid-fullscreen', active);
@@ -73,7 +85,6 @@ function scaleStage() {
 
 function clock() {
   const value = new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-  $('clock').textContent = value;
   $('viewer-clock').textContent = value;
 }
 
@@ -90,12 +101,8 @@ function persist() {
   catch (_) { toast('Your settings could not be saved. This connection works until you close the app.'); }
 }
 
-function setConnection(text, style = '') {
-  $('connection').className = `connection ${style}`;
-  $('connection').replaceChildren(document.createElement('i'), document.createTextNode(text));
-}
-
 function setScreen(next) {
+  if (next !== 'settings') discovery.stop();
   if (next !== 'grid') { liveGrid.stop(); poller?.stop(); }
   screen = next;
   $('dashboard').hidden = next !== 'grid';
@@ -165,7 +172,7 @@ function makeCard(channel, tile, layout) {
   card.querySelector('.channel-tag').textContent = `CAM ${String(channel.id + 1).padStart(2, '0')}`;
   card.querySelector('.camera-name').textContent = channel.name;
   card.querySelector('.card-star').textContent = settings.favorites.includes(channel.id) ? '★' : '';
-  if (!existing || !gridFullscreen.active || channel.online === false || channel.sleeping) {
+  if (!existing || !gridFullscreen.active || client?.demo || channel.online === false || channel.sleeping) {
     card.querySelector('.preview-status').textContent = channel.online === false ? 'Offline' : channel.sleeping ? 'Sleeping' : 'Loading preview…';
   }
   return card;
@@ -176,7 +183,8 @@ function updateGridStream(id, state) {
   const card = $(`camera-${id}`);
   if (!card) return;
   card.dataset.streamState = state.state;
-  card.querySelector('.camera-live').hidden = !['live', 'buffering'].includes(state.state);
+  // Keep the video renderable while it prepares its first frame.
+  card.querySelector('.camera-live').hidden = state.state === 'error';
   card.querySelector('.preview-status').textContent = {
     live: 'LIVE · Fluent', connecting: 'Connecting live…', buffering: 'Buffering…',
     reconnecting: `Reconnecting${state.attempt ? ` · ${state.attempt}/4` : ''}…`,
@@ -187,6 +195,9 @@ function updateGridStream(id, state) {
 
 function updateGridSummary() {
   const { total, live, failed } = liveGrid.summary;
+  $('overview-label').textContent = client?.demo ? 'Demo overview' : 'Snapshot overview';
+  $('overview-status').textContent = client?.demo ? 'DEMO · No cameras connected' :
+    `${recorder?.model || 'Reolink NVR'} · Refresh every ${settings.refresh}s`;
   $('grid-fullscreen-label').textContent = client?.demo ? 'Demo · Illustrations' :
     total ? `${filter === 'favorites' ? 'Favorites · ' : ''}Live · ${live}/${total}${failed ? ` · ${failed} unavailable` : ''}` : 'No online cameras';
   $('grid-retry').hidden = failed === 0;
@@ -245,7 +256,6 @@ function renderGrid(focusId) {
   page = overview.page;
   $('camera-count').textContent = channels.length;
   $('nvr-name').textContent = recorder?.name || 'HOME NVR';
-  $('overview-status').textContent = client?.demo ? 'DEMO · No cameras connected' : `${recorder?.model || 'Reolink NVR'} · Refresh every ${settings.refresh}s`;
   $('filter-all').classList.toggle('active', filter === 'all');
   $('filter-favorites').classList.toggle('active', filter === 'favorites');
   $('filter-all').setAttribute('aria-pressed', String(filter === 'all'));
@@ -265,7 +275,7 @@ function renderGrid(focusId) {
   $('camera-grid').hidden = list.length === 0;
   $('empty-state').hidden = list.length > 0;
   $('empty-title').textContent = filter === 'favorites' ? 'No favorites yet' : 'No cameras found';
-  $('empty-description').textContent = filter === 'favorites' ? 'Open a camera and select Favorite to keep it here.' : 'Check that cameras are connected to your NVR and this account has permission to view them. You can also set a manual channel count in Connection options.';
+  $('empty-description').textContent = filter === 'favorites' ? 'Open a camera and select Favorite to keep it here.' : 'Check that cameras are connected to your NVR and this account has permission to view them.';
   $('empty-action').textContent = filter === 'favorites' ? 'Show all cameras' : 'Connection settings';
   $('page-label').textContent = `${page + 1} / ${pages}`;
   $('page-prev').disabled = page === 0;
@@ -348,11 +358,10 @@ function startStatusPoll() {
     try {
       const updated = await current.channels();
       if (client !== current) return;
-      setConnection('Local connection', 'connected');
       const changed = JSON.stringify(updated) !== JSON.stringify(channels);
       channels = updated;
       if (changed && screen === 'grid') renderGrid(document.activeElement.id);
-    } catch (_) { if (client === current) setConnection('Connection interrupted'); }
+    } catch (_) { /* Keep the last channel list and retry on the next poll. */ }
     if (client === current) startStatusPoll();
   }, 30000);
 }
@@ -369,11 +378,11 @@ function goGrid() {
 
 function fillForm() {
   const source = settingsBeforeDemo || settings;
-  for (const key of ['address', 'username', 'password', 'quality', 'refresh', 'cycle']) $(key).value = source[key];
-  $('channel-count').value = source.channelCount;
-  $('rtmp-port').value = source.rtmpPort;
-  $('stream-auth').value = source.streamAuth;
-  $('remember').checked = source.remember;
+  for (const key of ['address', 'username', 'password']) $(key).value = source[key];
+  $('address').value = source.address.replace(/^https:\/\//, '');
+  $('password').type = 'password';
+  $('show-password').textContent = 'Show';
+  $('show-password').setAttribute('aria-label', 'Show password');
 }
 
 function openSettings() {
@@ -385,10 +394,10 @@ function openSettings() {
   clearTimeout(statusTimer);
   clearTimeout(hideTimer);
   fillForm();
+  discovery.reset();
+  if (!$('address').value && !document.hidden) discovery.start();
   $('settings-cancel').hidden = !client;
   $('form-error').hidden = true;
-  $('form-status').hidden = true;
-  clearCertificate();
   $('settings-title').textContent = client ? 'Connection settings' : 'Connect your NVR';
   $('address').focus();
 }
@@ -396,18 +405,10 @@ function openSettings() {
 function readForm() {
   const previous = settingsBeforeDemo || settings;
   const value = { ...previous, favorites: [...previous.favorites] };
-  for (const key of ['address', 'username', 'password', 'quality']) value[key] = $(key).value;
+  for (const key of ['address', 'username', 'password']) value[key] = $(key).value;
   value.address = normalizeAddress(value.address);
   value.username = value.username.trim();
   if (!value.username || !value.password) throw new Error('Enter your NVR username and password.');
-  value.remember = $('remember').checked;
-  value.channelCount = Number($('channel-count').value);
-  value.rtmpPort = Number($('rtmp-port').value);
-  if (!Number.isInteger(value.channelCount) || value.channelCount < 0 || value.channelCount > 64) throw new Error('Channel count must be between 0 and 64.');
-  if (!Number.isInteger(value.rtmpPort) || value.rtmpPort < 0 || value.rtmpPort > 65535) throw new Error('RTMP port must be between 0 and 65535.');
-  value.refresh = Number($('refresh').value);
-  value.cycle = Number($('cycle').value);
-  value.streamAuth = $('stream-auth').value;
   if (value.address !== previous.address || value.username !== previous.username) {
     value.favorites = [];
     value.lastChannel = null;
@@ -417,15 +418,11 @@ function readForm() {
 
 function setConnecting(value) {
   connecting = value;
+  if (value) discovery.stop();
+  $('discover-button').disabled = value || Boolean(discovery.controller);
+  for (const button of $('discovery-results').querySelectorAll('button')) button.disabled = value;
   $('connect-button').disabled = value;
-  $('connect-button').textContent = value ? 'Connecting…' : 'Connect to NVR →';
-  $('check-address').disabled = value;
-  $('certificate-trust').disabled = value || !pendingCertificate?.valid;
-}
-
-function clearCertificate() {
-  pendingCertificate = null;
-  $('certificate-review').hidden = true;
+  $('connect-button').textContent = value ? 'Connecting…' : 'Connect';
 }
 
 async function preparePreview(value, generation) {
@@ -437,20 +434,7 @@ async function preparePreview(value, generation) {
     const result = await previewConnection.check(value.address, controller.signal);
     if (generation !== connectGeneration) return false;
     value.address = result.address;
-    $('address').value = result.address;
-    if (result.certificate) {
-      pendingCertificate = result.certificate;
-      $('certificate-title').textContent = result.certificate.changed ? 'Your recorder’s certificate changed' : 'Approve your recorder’s certificate';
-      $('certificate-address').textContent = result.address;
-      $('certificate-fingerprint').textContent = result.certificate.fingerprint;
-      $('certificate-validity').textContent = result.certificate.valid ?
-        `Certificate expires ${new Date(result.certificate.validTo).toLocaleDateString()}.` :
-        'This certificate is expired or not yet valid. Correct the recorder’s certificate before connecting.';
-      $('certificate-review').hidden = false;
-      $('certificate-cancel').focus();
-      $('certificate-review').scrollIntoView({ block: 'start' });
-      return false;
-    }
+    $('address').value = result.address.replace(/^https:\/\//, '');
     return true;
   } finally {
     clearTimeout(timer);
@@ -462,13 +446,11 @@ async function connect(value) {
   const generation = ++connectGeneration;
   candidate?.close();
   let nextClient;
-  clearCertificate();
-  $('form-status').hidden = true;
   setConnecting(true);
   $('form-error').hidden = true;
   try {
-    // Determine the correct web address and obtain certificate approval before
-    // sending a password. The check itself never includes login credentials.
+    // Check the web address before sending a password. The local preview
+    // accepts the NVR certificate automatically; this probe has no credentials.
     if (previewConnection && !await preparePreview(value, generation)) return;
     if (generation !== connectGeneration) return;
     nextClient = new ReolinkClient(value, nvrFetch);
@@ -488,7 +470,6 @@ async function connect(value) {
     filter = 'all'; page = 0;
     persist();
     $('password').value = '';
-    setConnection('Local connection', 'connected');
     goGrid();
   } catch (error) {
     nextClient?.logout();
@@ -504,7 +485,7 @@ async function connect(value) {
 
 async function openDemo() {
   connectGeneration++;
-  previewController?.abort(); clearCertificate();
+  previewController?.abort();
   candidate?.close(); candidate = null;
   setConnecting(false);
   poller?.stop(); liveGrid.stop(); player.stop();
@@ -517,7 +498,6 @@ async function openDemo() {
   recorder = await client.connect();
   channels = recorder.channels;
   selected = null; page = 0; filter = 'all';
-  setConnection('Demo mode', 'demo');
   $('password').value = '';
   goGrid();
 }
@@ -638,6 +618,7 @@ function pauseLive() {
 }
 
 function showDialog(title, description, actionLabel, action) {
+  discovery.stop();
   clearTimeout(hideTimer);
   clearTimeout(gridHideTimer);
   restoreFocus = document.activeElement;
@@ -674,7 +655,7 @@ function back() {
     client?.logout();
     try {
       if (globalThis.tizen?.application) globalThis.tizen.application.getCurrentApplication().exit();
-      else { client = null; channels = []; setConnection('Your home, in view'); openSettings(); toast('TV app would close here.'); }
+      else { client = null; channels = []; openSettings(); toast('TV app would close here.'); }
     } catch (_) { toast('Press Home on your remote to leave the app.'); }
   });
 }
@@ -685,55 +666,9 @@ $('connection-form').addEventListener('submit', event => {
   try { connect(readForm()); }
   catch (error) { $('form-error').textContent = error.message; $('form-error').hidden = false; $('form-error').scrollIntoView({ block: 'nearest' }); }
 });
-$('check-address').onclick = async () => {
-  if (connecting || !previewConnection) return;
-  const generation = ++connectGeneration;
-  clearCertificate();
-  $('form-error').hidden = true; $('form-status').hidden = true;
-  setConnecting(true);
-  try {
-    const value = { address: normalizeAddress($('address').value) };
-    if (await preparePreview(value, generation)) {
-      $('form-status').textContent = `Recorder API reached at ${value.address}. Enter your recorder login and connect.`;
-      $('form-status').hidden = false;
-      $('password').focus();
-    }
-  } catch (error) {
-    if (generation !== connectGeneration) return;
-    $('form-error').textContent = error.message; $('form-error').hidden = false;
-    $('form-error').scrollIntoView({ block: 'nearest' });
-  } finally { if (generation === connectGeneration) setConnecting(false); }
-};
-$('certificate-cancel').onclick = () => { clearCertificate(); $('address').focus(); };
-$('certificate-trust').onclick = async () => {
-  if (connecting || !pendingCertificate?.valid) return;
-  const review = pendingCertificate;
-  if (normalizeAddress($('address').value) !== review.address) { clearCertificate(); return; }
-  const generation = ++connectGeneration;
-  const controller = new AbortController();
-  previewController = controller;
-  const timer = setTimeout(() => controller.abort(), 10000);
-  setConnecting(true);
-  try {
-    await previewConnection.trust(review.address, review.fingerprint, controller.signal);
-    if (generation !== connectGeneration) return;
-    clearCertificate();
-    $('form-status').textContent = 'Certificate approved for this preview session. Connect to NVR to sign in.';
-    $('form-status').hidden = false;
-    $('password').focus();
-  } catch (error) {
-    if (generation !== connectGeneration) return;
-    $('form-error').textContent = error.message; $('form-error').hidden = false;
-    $('form-error').scrollIntoView({ block: 'nearest' });
-  } finally {
-    clearTimeout(timer);
-    if (previewController === controller) previewController = null;
-    if (generation === connectGeneration) setConnecting(false);
-  }
-};
 $('address').addEventListener('input', () => {
   connectGeneration++; previewController?.abort(); candidate?.close(); candidate = null;
-  clearCertificate(); $('form-status').hidden = true; setConnecting(false);
+  setConnecting(false);
 });
 $('settings-button').onclick = openSettings;
 $('layout-button').onclick = openLayout;
@@ -751,7 +686,6 @@ $('dashboard').addEventListener('focusin', event => {
 $('layout-auto').onclick = () => applyLayout('auto');
 $('layout-close').onclick = closeLayout;
 $('settings-cancel').onclick = back;
-$('demo-button').onclick = openDemo;
 $('back-grid').onclick = goGrid;
 $('retry-video').onclick = () => { openCamera(selected, true); scheduleCycle(); };
 $('prev-camera').onclick = () => nextCamera(-1);
@@ -776,28 +710,12 @@ for (const mode of ['all', 'favorites']) $(`filter-${mode}`).onclick = () => { f
 $('page-prev').onclick = () => changePage(-1);
 $('page-next').onclick = () => changePage(1);
 $('empty-action').onclick = () => { if (filter === 'favorites') { filter = 'all'; renderGrid(); } else openSettings(); };
-$('advanced-toggle').onclick = () => {
-  $('advanced').hidden = !$('advanced').hidden;
-  $('advanced-toggle').setAttribute('aria-expanded', String(!$('advanced').hidden));
-  $('advanced-toggle').querySelector('span').textContent = $('advanced').hidden ? '＋' : '−';
-  if (!$('advanced').hidden) $('quality').focus();
-};
 $('show-password').onclick = () => {
   const show = $('password').type === 'password';
   $('password').type = show ? 'text' : 'password';
   $('show-password').textContent = show ? 'Hide' : 'Show';
   $('show-password').setAttribute('aria-label', show ? 'Hide password' : 'Show password');
 };
-$('forget-button').onclick = () => showDialog('Forget this connection?', 'This removes the saved NVR login and favorites from this TV.', 'Forget connection', () => {
-  connectGeneration++; candidate?.close(); candidate = null; setConnecting(false);
-  poller?.stop(); liveGrid.stop(); player.stop(); client?.logout(); client = null;
-  try { forgetSettings(); } catch (_) { toast('Unable to remove saved settings.'); return; }
-  settings = { ...DEFAULTS, favorites: [] };
-  settingsBeforeDemo = null;
-  channels = []; selected = null;
-  setConnection('Your home, in view');
-  openSettings();
-});
 $('dialog-cancel').onclick = closeDialog;
 $('dialog-confirm').onclick = () => { const action = dialogAction; closeDialog(); action?.(); };
 $('viewer').addEventListener('pointermove', () => revealControls());
@@ -882,29 +800,22 @@ document.addEventListener('keydown', event => {
 });
 
 document.addEventListener('visibilitychange', () => {
-  if (document.hidden) { poller?.stop(); liveGrid.stop(); player.stop(); clearTimeout(statusTimer); clearInterval(cycleTimer); clearTimeout(hideTimer); clearTimeout(gridHideTimer); }
+  if (document.hidden) { discovery.stop(); poller?.stop(); liveGrid.stop(); player.stop(); clearTimeout(statusTimer); clearInterval(cycleTimer); clearTimeout(hideTimer); clearTimeout(gridHideTimer); }
   else {
     if (screen === 'viewer' && selected !== null && !paused) openCamera(selected, true);
     else if (screen === 'grid') { startGridMedia(); revealGridControls(); }
     scheduleCycle(); startStatusPoll();
   }
 });
-window.addEventListener('pagehide', () => { poller?.stop(); liveGrid.stop(); player.stop(); client?.logout(); });
+window.addEventListener('pagehide', () => { discovery.stop(); poller?.stop(); liveGrid.stop(); player.stop(); client?.logout(); });
 window.addEventListener('resize', scaleStage);
 registerRemote(); scaleStage(); clock(); setInterval(clock, 1000);
-if (previewKey) {
-  $('check-address').hidden = false;
-  $('remember-label').textContent = 'Remember password in this browser';
-  $('setup-device').textContent = 'this computer';
-  $('welcome-device').textContent = 'YOUR BROWSER';
-  setConnection('Connect your NVR');
-}
 fillForm();
 const launchMode = new URLSearchParams(location.search);
 if (launchMode.get('connect') === '1') {
-  $('demo-button').hidden = true;
   $('address').focus();
 }
 else if (launchMode.get('demo') === '1') openDemo();
 else if (settings.password && settings.address) connect(settings);
 else $('address').focus();
+if (screen === 'settings' && !connecting && !$('address').value && !document.hidden) discovery.start();
