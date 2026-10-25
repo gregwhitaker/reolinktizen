@@ -2,30 +2,32 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { scanTvSockets } from '../app/js/discovery-tv-scan.js';
 import { createDiscovery } from '../app/js/discovery.js';
-import { id, nvr, reply } from './fixtures/discovery.mjs';
+import { id, nvr, reply, nativeReply } from './fixtures/discovery.mjs';
 
 function nativeModule(packets = []) {
   let sender = '';
   return {
-    HEAPU8: new Uint8Array(70000), sent: [], closes: 0, opens: 0,
-    _discovery_open() { this.opens++; return 0; }, _discovery_close() { this.closes++; },
+    HEAPU8: new Uint8Array(70000), sent: [], nativeSends: 0, closes: 0, opens: 0,
+    _discovery_open() { this.opens++; return 3; }, _discovery_close() { this.closes++; },
     _discovery_buffer() { return 128; }, _discovery_sender() { return 1; }, UTF8ToString() { return sender; },
     _discovery_send(length) { this.sent.push(new TextDecoder().decode(this.HEAPU8.subarray(128, 128 + length))); return length; },
+    _discovery_send_reolink() { this.nativeSends++; return 4; },
     _discovery_receive() {
       const next = packets.shift(); if (!next) return 0;
       sender = next.ip || nvr.ip;
-      const bytes = new TextEncoder().encode(reply(next)); this.HEAPU8.set(bytes, 128); return bytes.length;
+      const bytes = next.native ? nativeReply(next) : new TextEncoder().encode(reply(next)); this.HEAPU8.set(bytes, 128); return bytes.length;
     }
   };
 }
 
 test('TV worker driver discovers and deduplicates devices using native UDP without HTTP', async t => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
-  const module = nativeModule([{}, {}, { ip: '192.168.1.101', model: 'RLC-810A', name: 'Camera' }]);
+  const module = nativeModule([{ native: true }, {}, { ip: '192.168.1.101', model: 'RLC-810A', name: 'Camera' }]);
   const result = scanTvSockets(module, { id }); t.mock.timers.tick(3500);
   const devices = await result;
   assert.equal(devices.length, 2); assert.deepEqual(devices[0], nvr);
   assert.equal(module.opens, 1); assert.equal(module.closes, 1); assert.equal(module.sent.length, 3);
+  assert.equal(module.nativeSends, 3);
   assert.ok(module.sent.every(xml => xml.includes(id) && xml.includes('<d:Probe/>')));
   t.mock.timers.tick(20000); assert.equal(module.sent.length, 3);
 });
@@ -34,7 +36,7 @@ test('TV driver closes native sockets on cancellation, send failure and receive 
   t.mock.timers.enable({ apis: ['setTimeout'] });
   for (const failure of ['abort', 'send', 'receive', 'open', 'oversize']) {
     const module = nativeModule(), controller = new AbortController();
-    if (failure === 'send') module._discovery_send = () => -1;
+    if (failure === 'send') { module._discovery_send = () => -1; module._discovery_send_reolink = () => -1; }
     if (failure === 'receive') module._discovery_receive = () => -1;
     if (failure === 'open') module._discovery_open = () => -1;
     if (failure === 'oversize') module._discovery_receive = () => 65537;
@@ -43,6 +45,35 @@ test('TV driver closes native sockets on cancellation, send failure and receive 
     if (failure === 'abort') controller.abort(); else t.mock.timers.tick(1);
     await rejected;
     assert.equal(module.closes, 1); t.mock.timers.tick(20000); assert.equal(module.closes, 1);
+  }
+});
+
+test('TV discovery works without ONVIF and tolerates either transport being unavailable', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  for (const mode of [1, 2]) {
+    const module = nativeModule([mode === 2 ? { native: true } : {}]);
+    module._discovery_open = () => mode;
+    const result = scanTvSockets(module, { id }); t.mock.timers.tick(3500);
+    assert.deepEqual(await result, [{ ...nvr, name: mode === 2 ? nvr.model : nvr.name }]);
+    assert.equal(module.sent.length, mode === 1 ? 3 : 0);
+    assert.equal(module.nativeSends, mode === 2 ? 3 : 0);
+    assert.equal(module.closes, 1);
+  }
+  const partial = nativeModule([{ native: true }]);
+  partial._discovery_send = () => -1;
+  const result = scanTvSockets(partial, { id }); t.mock.timers.tick(3500);
+  assert.deepEqual(await result, [{ ...nvr, name: nvr.model }]);
+});
+
+test('TV reports an occupied native reply port only if ONVIF also finds no device', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  for (const found of [false, true]) {
+    const module = nativeModule(found ? [{}] : []); module._discovery_open = () => 5;
+    const result = scanTvSockets(module, { id });
+    const rejected = found ? null : assert.rejects(result, { code: 'DISCOVERY_PORT_BUSY' });
+    t.mock.timers.tick(3500);
+    if (found) assert.deepEqual(await result, [nvr]); else await rejected;
+    assert.equal(module.closes, 1);
   }
 });
 
@@ -108,8 +139,12 @@ test('browser discovery sends only the preview key, never connection credentials
 
 test('browser discovery propagates cancellation and explains stale servers and timeouts', async t => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
-  for (const [status, message] of [[404, /Restart npm run dev/], [403, /Reload/], [503, /Could not search/]]) {
+  for (const [status, message] of [[404, /Restart npm run dev/], [403, /Reload/], [429, /already running/], [503, /Could not search/]]) {
     await assert.rejects(createDiscovery({ key: 'key', origin: 'http://localhost', fetchImpl: async () => new Response('', { status }) })(), message);
+  }
+  for (const [code, message] of [['DISCOVERY_PORT_BUSY', /Close the Reolink client/], ['DISCOVERY_BLOCKED', /Allow local network access/]]) {
+    await assert.rejects(createDiscovery({ key: 'key', origin: 'http://localhost', fetchImpl: async () =>
+      new Response('private error detail', { status: 503, headers: { 'X-Reolink-Preview-Error': code } }) })(), message);
   }
   const controller = new AbortController(); let signal;
   const scan = createDiscovery({ key: 'key', origin: 'http://localhost', timeout: 50,

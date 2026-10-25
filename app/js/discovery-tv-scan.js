@@ -1,4 +1,5 @@
-import { DISCOVERY_DURATION, DISCOVERY_RETRIES, discoveryProbe, parseDiscoveryReply, sortDiscovered } from './discovery-protocol.js';
+import { DISCOVERY_DURATION, DISCOVERY_RETRIES, DISCOVERY_PORT_BUSY, discoveryProbe, parseDiscoveryPacket,
+  addDiscovered, sortDiscovered } from './discovery-protocol.js';
 
 // Keep the socket module in its worker until close() has run. Terminating an
 // active worker alone does not guarantee the TV's native socket is released.
@@ -20,13 +21,21 @@ export function scanTvSockets(module, { id, signal, duration = DISCOVERY_DURATIO
     const abort = () => finish(signal.reason || new DOMException('Search cancelled.', 'AbortError'));
     signal?.addEventListener('abort', abort, { once: true });
     try {
-      if (module._discovery_open() !== 0) throw new Error('Could not open TV network discovery. Check the network connection.');
+      const available = module._discovery_open();
+      if (!Number.isInteger(available) || available <= 0 || available > 7) throw new Error('Could not open TV network discovery. Check the network connection.');
+      let modes = available & 3;
+      const portBusy = () => Object.assign(new Error(DISCOVERY_PORT_BUSY), { code: 'DISCOVERY_PORT_BUSY' });
+      if (!modes) throw available & 4 ? portBusy() : new Error('Could not open TV network discovery. Check the network connection.');
       const buffer = module._discovery_buffer();
       for (const delay of retries) timers.push(setTimeout(() => {
         if (settled) return;
         try {
-          module.HEAPU8.set(bytes, buffer);
-          if (module._discovery_send(bytes.length) !== bytes.length) throw new Error('Could not send a network search from this TV.');
+          if (modes & 1) {
+            module.HEAPU8.set(bytes, buffer);
+            if (module._discovery_send(bytes.length) !== bytes.length) modes &= ~1;
+          }
+          if ((modes & 2) && module._discovery_send_reolink() !== 4) modes &= ~2;
+          if (!modes) throw new Error('Could not send a network search from this TV.');
         } catch (error) { finish(error); }
       }, delay));
       const read = () => {
@@ -40,16 +49,13 @@ export function scanTvSockets(module, { id, signal, duration = DISCOVERY_DURATIO
             if (count > 65536) throw new Error('Invalid network discovery response.');
             packets++;
             const source = module.UTF8ToString(module._discovery_sender());
-            const xml = new TextDecoder().decode(module.HEAPU8.subarray(buffer, buffer + count));
-            for (const device of parseDiscoveryReply(xml, source, id)) {
-              if ((devices.size < 64 || devices.has(device.ip)) && devices.get(device.ip)?.kind !== 'nvr') devices.set(device.ip, device);
-            }
+            for (const device of parseDiscoveryPacket(module.HEAPU8.subarray(buffer, buffer + count), source, id)) addDiscovered(devices, device);
           }
         } catch (error) { finish(error); return; }
         timers.push(setTimeout(read, 30));
       };
       read();
-      if (!settled) timers.push(setTimeout(() => finish(), duration));
+      if (!settled) timers.push(setTimeout(() => finish(!devices.size && (available & 4) ? portBusy() : null), duration));
     } catch (error) { finish(error); }
   });
 }

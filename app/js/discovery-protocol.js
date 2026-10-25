@@ -1,6 +1,11 @@
-// ONVIF / WS-Discovery, shared by the desktop and on-TV UDP transports.
+// Reolink LAN broadcast and ONVIF, shared by desktop and on-TV UDP transports.
 export const DISCOVERY_GROUP = '239.255.255.250';
 export const DISCOVERY_PORT = 3702;
+export const REOLINK_DISCOVERY_GROUP = '255.255.255.255';
+export const REOLINK_DISCOVERY_PORT = 2000;
+export const REOLINK_REPLY_PORT = 3000;
+export const DISCOVERY_PORT_BUSY = 'Another app is using the Reolink discovery port. Close the Reolink client and search again, or enter the NVR IP address.';
+export const DISCOVERY_BLOCKED = 'Network discovery was blocked. Allow local network access for the app running the preview, then search again.';
 export const DISCOVERY_DURATION = 3500;
 export const DISCOVERY_RETRIES = [0, 700, 1800];
 
@@ -33,6 +38,47 @@ function decode(value) {
 
 function label(value) {
   return value.replace(/[\u0000-\u001f\u007f<>]/g, '').trim().slice(0, 96);
+}
+
+export function reolinkDiscoveryProbe() { return new Uint8Array([0xaa, 0xaa, 0, 0]); }
+
+function nativeIdentityField(bytes, offset) {
+  const field = bytes.subarray(offset, offset + 32);
+  const end = field.indexOf(0);
+  if (end < 0 || field.subarray(0, end).some(byte => byte < 32 || byte > 126)) return null;
+  return new TextDecoder().decode(field.subarray(0, end)).trim();
+}
+
+export function parseReolinkDiscoveryReply(bytes, source) {
+  if (!isLanIPv4(source) || !(bytes instanceof Uint8Array) || bytes.length < 228 || bytes.length > 4096) return [];
+  // Replies are device-info records, not echoes of the aa aa 00 00 probe.
+  // The observed recorder leaves the model empty but supplies NVR at offset 132.
+  // Read only bounded identity fields; UID/MAC/access-key fields stay unused.
+  const type = nativeIdentityField(bytes, 132), model = nativeIdentityField(bytes, 196);
+  if (type === null || model === null) return [];
+  const nvrModel = /^RLN\d+[A-Z]*(?:-[\w]+)?$|^NVR\b/i.test(model);
+  const knownType = /^(?:NVR|IPC|smart_nvr|smart_cam|smart_bell)$/i.test(type);
+  if (!knownType && !nvrModel && !/^RLC-[\w-]+$/i.test(model)) return [];
+  const kind = /^(?:NVR|smart_nvr)$/i.test(type) || nvrModel ? 'nvr' : 'device';
+  return [{ ip: source, address: `https://${source}`, name: model || (kind === 'nvr' ? 'Reolink NVR' : 'Reolink device'), model, kind }];
+}
+
+export function parseDiscoveryPacket(bytes, source, id) {
+  if (!(bytes instanceof Uint8Array) || bytes.length > 65536) return [];
+  const native = parseReolinkDiscoveryReply(bytes, source);
+  if (native.length) return native;
+  // Binary records must not fall through to XML decoding of unrelated fields.
+  if (bytes.includes(0)) return [];
+  return parseDiscoveryReply(new TextDecoder().decode(bytes), source, id);
+}
+
+export function addDiscovered(devices, device) {
+  const previous = devices.get(device.ip);
+  if (!previous && devices.size >= 64) return;
+  const model = previous?.model || device.model;
+  const named = [previous, device].find(item => item?.name && item.name !== item.model && !['Reolink device', 'Reolink NVR'].includes(item.name));
+  const kind = previous?.kind === 'nvr' || device.kind === 'nvr' ? 'nvr' : 'device';
+  devices.set(device.ip, { ...device, model, name: named?.name || model || (kind === 'nvr' ? 'Reolink NVR' : 'Reolink device'), kind });
 }
 
 export function parseDiscoveryReply(xml, source, id) {

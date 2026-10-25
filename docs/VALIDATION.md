@@ -224,3 +224,39 @@ At the user's request, the desktop preview now always accepts the local NVR's HT
 - The remaining 11 existing HTTP/WebSocket listener integration tests were not rerun because this execution environment previously rejected their loopback listeners. The TLS tests now need no listener, and do not contact any real recorder.
 - A temporary DOM harness executed the actual app modules and verified that one Connect submission reaches the camera grid with simulated API responses, without certificate requests, an approval panel or a second click. It also checked that the removed header clock and Forget saved connection button remain absent.
 - `npm run build`, modified JavaScript syntax checks and `git diff --check` passed. The user must stop the old preview server, run `npm run dev` again and reload the page to activate the new server behavior. An older running preview receives explicit restart guidance rather than reopening certificate review.
+
+## Automatic connection restoration
+
+Successful connections now save their credentials automatically in both browser and TV app storage. Refreshes and relaunches reconnect with those credentials, including launches from existing `?connect=1` bookmarks. Successful sign-in clears setup/demo launch flags while preserving other URL parameters and fragments. Failed sign-ins do not replace the last saved connection. This supersedes the earlier opt-in password persistence behavior described above.
+
+- All 21 API, storage, layout, and preview connection tests passed.
+- A temporary jsdom/VM harness ran the actual app modules in browser and simulated TV contexts. It verified migration from `remember: false` after a successful sign-in, automatic reconnect after refresh and relaunch, reconnection from an old setup bookmark, preserved layout/favorites, session cleanup retaining saved credentials, snapshot-only overview restoration, and rejected logins leaving saved data unchanged without retry loops.
+- The same harness checked unavailable browser history and storage. A history failure does not interrupt login; a storage failure leaves the active connection working and displays the existing save-error message.
+- These checks use simulated NVR responses and TV platform boundaries. Physical-TV storage persistence and relaunch have not been verified on hardware.
+
+## Native Reolink discovery
+
+Search now sends native Reolink LAN broadcasts alongside ONVIF. The previous implementation depended on ONVIF being enabled. Desktop scanning includes each LAN interface's subnet broadcast address and the limited broadcast address; the TV source uses its own native socket. Results merge by IP, and repeated searches release and reopen the fixed native reply port.
+
+All 35 discovery tests passed, including native-only replies, mixed-protocol identity, repeated searches, partial transport failures, cancellation, occupied reply ports, blocked access, and omission of credential fields. The full-app DOM and connection-restoration checks passed. A host-compiled C harness with mocked socket calls verified exact probe bytes and ports, receive fairness, partial initialization and repeated cleanup; C syntax checks and the browser build also passed.
+
+The live LAN scan could not open discovery sockets in this environment. Native reply fixtures are synthetic, not captures from the user's NVR. The Samsung module is still uncompiled and needs a hardware test. See [DISCOVERY.md](DISCOVERY.md) for protocol sources, validation limits, and restart/build instructions.
+
+## Native reply parsing correction
+
+Live desktop testing found that the recorder answered the native probe, but the parser discarded its response: the reply did not echo the request magic, and the model field was empty. Its 388-byte device-info record had a zero prefix and `NVR` in the type field at offset 132. The parser now uses bounded, validated type/model fields and preserves generic NVR identity when duplicate replies are merged. It continues to exclude device credentials and use the UDP sender as the address.
+
+- The corrected desktop scan found the owner's actual recorder. No real packet, device identifier, or network address is included in these fixtures or this report.
+- All 38 discovery tests passed. The new regression failed against the old parser before the fix; coverage also checks malformed identity fields, preserved ONVIF metadata, automatic NVR selection, and omission of access-key fields.
+- The preview process had also started before the latest discovery code. `npm run dev` now watches server modules so future changes restart the process; browsers still need a reload for the new session key.
+- The parser is shared with the TV worker, but this live validation was on the desktop. Physical-TV discovery and the Samsung module build remain separate checks.
+
+## First-time setup flow — 25 October 2026
+
+The Blue connection screen now separates Search, Select, and Sign in. A single discovered recorder remains an explicit choice. Retry and manual address entry are available when discovery is empty, fails, or is unsupported. Back returns to the previous step. Changing recorders clears the prior password; successful saved connections still reconnect automatically.
+
+- All 121 automated tests passed. Discovery UI coverage includes explicit single-recorder selection, multiple devices, stale-result cancellation, retry, unsupported hosts, and preserving completed results while navigating away and back.
+- Browser checks using synthetic discovery/API responses verified the animated search screen, a five-recorder list with arrow-key scrolling, single-recorder selection, retry after empty results, search errors, and the static-host manual fallback.
+- Manual address validation rejected URL paths and accepted a custom HTTPS port. Login Back preserved that address. Switching to a different recorder cleared the entered password.
+- A rejected login returned focus to Password; retrying with synthetic valid credentials opened the camera grid. Reload reconnected automatically, and Settings → Change and Back to cameras worked without replacing the saved connection. Fixture request records showed no login request during search or selection.
+- JavaScript syntax checks and the browser build passed. These setup-flow checks used the desktop browser; the updated widget has not been installed or tested on a physical TV.

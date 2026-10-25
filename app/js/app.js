@@ -21,23 +21,21 @@ let previewController = null;
 const QUALITY = { sub: 'Fluent', ext: 'Balanced', main: 'Clear' };
 let settings = readSettings();
 let client = null, candidate = null, poller = null;
-let channels = [], recorder = null;
+let channels = [];
 let screen = 'settings', filter = 'all', page = 0, selected = null;
 let cycleEnabled = false, cycleTimer = null, statusTimer = null, hideTimer = null, toastTimer = null;
 let playerState = 'idle', paused = false, connectGeneration = 0, connecting = false;
 let restoreFocus = null, dialogAction = null;
 let settingsBeforeDemo = null;
 let gridHideTimer = null, gridFocusId = null;
+let setupStep = 'search', loginSource = 'select', credentialAddress = '';
 const liveGrid = new LiveGrid(updateGridStream);
 const discovery = new DiscoveryUI({
-  root: $('discovery'), address: $('address'), status: $('discovery-status'),
+  root: $('discovery'), status: $('discovery-status'),
   results: $('discovery-results'), button: $('discover-button'),
   scan: createDiscovery({ key: previewKey, origin: location.origin, isTV: Boolean(globalThis.tizen?.application) }),
-  onSelect: device => {
-    if (screen !== 'settings' || connecting) return;
-    $('address').value = device.ip;
-    $('address').dispatchEvent(new Event('input', { bubbles: true }));
-  }
+  onSelect: device => selectRecorder(device),
+  onState: renderDiscovery
 });
 
 const gridFullscreen = new GridFullscreen(document, active => {
@@ -166,7 +164,7 @@ function makeCard(channel, tile, layout) {
   card.setAttribute('aria-label', `${channel.name}, ${channel.online === false ? 'offline' : 'open live video'}`);
   card.dataset.channel = channel.id;
   if (!existing) {
-    card.innerHTML = '<div class="camera-placeholder"><svg viewBox="0 0 80 80" fill="none" aria-hidden="true"><rect x="8" y="20" width="46" height="40" rx="8" stroke="currentColor" stroke-width="2"/><path d="m54 32 19-10v36L54 48" stroke="currentColor" stroke-width="2"/><circle cx="30" cy="40" r="10" stroke="currentColor" stroke-width="2"/></svg></div><img class="camera-preview" alt="" hidden><video class="camera-live" playsinline autoplay muted tabindex="-1" aria-hidden="true" hidden></video><div class="camera-shade"></div><div class="card-top"><span class="channel-tag"></span><span class="card-star"></span></div><div class="card-bottom"><div><span class="camera-name"></span><span class="preview-status"></span></div><span class="camera-arrow" aria-hidden="true">↗</span></div>';
+    card.innerHTML = '<div class="camera-placeholder"><svg viewBox="0 0 80 80" fill="none" aria-hidden="true"><rect x="8" y="20" width="46" height="40" rx="8" stroke="currentColor" stroke-width="2"/><path d="m54 32 19-10v36L54 48" stroke="currentColor" stroke-width="2"/><circle cx="30" cy="40" r="10" stroke="currentColor" stroke-width="2"/></svg></div><img class="camera-preview" alt="" hidden><video class="camera-live" playsinline autoplay muted tabindex="-1" aria-hidden="true" hidden></video><div class="camera-shade"></div><div class="card-top"><span class="channel-tag"></span><span class="card-star"></span></div><div class="card-bottom"><div><span class="camera-name"></span><span class="preview-status"></span></div></div>';
     card.addEventListener('click', () => openCamera(channel.id));
   }
   card.querySelector('.channel-tag').textContent = `CAM ${String(channel.id + 1).padStart(2, '0')}`;
@@ -195,9 +193,6 @@ function updateGridStream(id, state) {
 
 function updateGridSummary() {
   const { total, live, failed } = liveGrid.summary;
-  $('overview-label').textContent = client?.demo ? 'Demo overview' : 'Snapshot overview';
-  $('overview-status').textContent = client?.demo ? 'DEMO · No cameras connected' :
-    `${recorder?.model || 'Reolink NVR'} · Refresh every ${settings.refresh}s`;
   $('grid-fullscreen-label').textContent = client?.demo ? 'Demo · Illustrations' :
     total ? `${filter === 'favorites' ? 'Favorites · ' : ''}Live · ${live}/${total}${failed ? ` · ${failed} unavailable` : ''}` : 'No online cameras';
   $('grid-retry').hidden = failed === 0;
@@ -254,8 +249,7 @@ function renderGrid(focusId) {
   const overview = overviewPage(list, settings.overviewLayout, page);
   const { layout, pages } = overview;
   page = overview.page;
-  $('camera-count').textContent = channels.length;
-  $('nvr-name').textContent = recorder?.name || 'HOME NVR';
+  $('camera-count').textContent = channels.filter(channel => channel.online === true && !channel.sleeping).length;
   $('filter-all').classList.toggle('active', filter === 'all');
   $('filter-favorites').classList.toggle('active', filter === 'favorites');
   $('filter-all').setAttribute('aria-pressed', String(filter === 'all'));
@@ -383,6 +377,96 @@ function fillForm() {
   $('password').type = 'password';
   $('show-password').textContent = 'Show';
   $('show-password').setAttribute('aria-label', 'Show password');
+  credentialAddress = source.address;
+}
+
+function showSetupStep(step) {
+  setupStep = step;
+  $('discovery').hidden = !['search', 'select'].includes(step);
+  $('manual-form').hidden = step !== 'manual';
+  $('connection-form').hidden = step !== 'login';
+  const copy = {
+    search: ['Find your NVR', 'We’ll look for Reolink recorders on your local network.'],
+    select: ['Choose your NVR', 'Select the recorder you want to view on this TV.'],
+    manual: ['Add your NVR', 'Enter your recorder’s IP address to connect directly.'],
+    login: ['Sign in to your NVR', 'Use the account on your Reolink recorder. Your connection will be remembered.']
+  }[step];
+  $('settings-title').textContent = copy[0];
+  $('settings-description').textContent = copy[1];
+  const current = step === 'login' ? 2 : ['select', 'manual'].includes(step) ? 1 : 0;
+  ['search', 'select', 'login'].forEach((name, index) => {
+    const item = $(`setup-${name}-step`);
+    item.classList.toggle('complete', index < current);
+    if (index === current) item.setAttribute('aria-current', 'step');
+    else item.removeAttribute('aria-current');
+  });
+}
+
+function renderDiscovery({ state }) {
+  if (screen !== 'settings' || !['search', 'select'].includes(setupStep)) return;
+  const searching = state === 'searching', found = state === 'results';
+  showSetupStep(found ? 'select' : 'search');
+  $('discovery').classList.toggle('searching', searching);
+  $('discovery').classList.toggle('has-results', found);
+  $('discovery-visual').hidden = found;
+  $('discovery-title').textContent = {
+    idle: 'Find a recorder', searching: 'Searching for your NVR', results: 'Available recorders',
+    empty: 'No NVR found', error: 'Search couldn’t finish', stopped: 'Search paused', unavailable: 'Connect manually'
+  }[state];
+  $('discover-button').hidden = searching || state === 'unavailable' || state === 'idle';
+  // Do not take focus from someone choosing manual entry while a scan completes.
+  const active = document.activeElement;
+  if (!document.hidden && $('dialog-overlay').hidden &&
+      (active === document.body || active === $('discovery-title') || active === $('discover-button'))) {
+    if (searching) $('discovery-title').focus();
+    else {
+      const fallback = $('discover-button').hidden ? $('manual-button') : $('discover-button');
+      ($('discovery-results').querySelector('button') || fallback).focus();
+    }
+  }
+}
+
+function startSetupSearch() {
+  showSetupStep('search');
+  $('discovery-title').focus();
+  if (!document.hidden) discovery.start();
+}
+
+function returnToRecorders() {
+  $('form-error').hidden = true;
+  if (['results', 'empty', 'error', 'unavailable'].includes(discovery.state)) {
+    showSetupStep('select');
+    renderDiscovery({ state: discovery.state });
+    ($('discovery-results').querySelector('button') || $('manual-button')).focus();
+  } else startSetupSearch();
+}
+
+function showManualAddress() {
+  showSetupStep('manual');
+  discovery.stop();
+  $('manual-error').hidden = true;
+  $('address').focus();
+}
+
+function selectRecorder(device, source = 'select') {
+  if (screen !== 'settings' || connecting) return;
+  const address = normalizeAddress(device.address || device.ip);
+  // Changing recorders must not carry a previously entered password with it.
+  if (address !== credentialAddress) {
+    $('password').value = '';
+    $('password').type = 'password';
+    $('show-password').textContent = 'Show';
+    $('show-password').setAttribute('aria-label', 'Show password');
+  }
+  credentialAddress = address;
+  $('address').value = address.replace(/^https:\/\//, '');
+  $('selected-recorder-name').textContent = device.name || 'Reolink NVR';
+  $('selected-recorder-address').textContent = $('address').value;
+  loginSource = source;
+  showSetupStep('login');
+  discovery.stop();
+  $('form-error').hidden = true;
+  $('username').focus();
 }
 
 function openSettings() {
@@ -395,11 +479,10 @@ function openSettings() {
   clearTimeout(hideTimer);
   fillForm();
   discovery.reset();
-  if (!$('address').value && !document.hidden) discovery.start();
   $('settings-cancel').hidden = !client;
   $('form-error').hidden = true;
-  $('settings-title').textContent = client ? 'Connection settings' : 'Connect your NVR';
-  $('address').focus();
+  if ($('address').value) selectRecorder({ address: $('address').value });
+  else startSetupSearch();
 }
 
 function readForm() {
@@ -422,7 +505,8 @@ function setConnecting(value) {
   $('discover-button').disabled = value || Boolean(discovery.controller);
   for (const button of $('discovery-results').querySelectorAll('button')) button.disabled = value;
   $('connect-button').disabled = value;
-  $('connect-button').textContent = value ? 'Connecting…' : 'Connect';
+  $('connect-button').textContent = value ? 'Signing in…' : 'Sign in';
+  for (const id of ['username', 'password', 'show-password', 'change-recorder']) $(id).disabled = value;
 }
 
 async function preparePreview(value, generation) {
@@ -435,6 +519,8 @@ async function preparePreview(value, generation) {
     if (generation !== connectGeneration) return false;
     value.address = result.address;
     $('address').value = result.address.replace(/^https:\/\//, '');
+    $('selected-recorder-address').textContent = $('address').value;
+    credentialAddress = result.address;
     return true;
   } finally {
     clearTimeout(timer);
@@ -445,7 +531,7 @@ async function preparePreview(value, generation) {
 async function connect(value) {
   const generation = ++connectGeneration;
   candidate?.close();
-  let nextClient;
+  let nextClient, failure;
   setConnecting(true);
   $('form-error').hidden = true;
   try {
@@ -462,24 +548,39 @@ async function connect(value) {
     client = nextClient;
     candidate = null;
     if (oldClient) oldClient.logout();
-    settings = value;
+    // A successful sign-in is remembered on both the browser and the TV.
+    settings = { ...value, remember: true };
     settingsBeforeDemo = null;
-    recorder = result;
     channels = result.channels;
     selected = settings.lastChannel;
     filter = 'all'; page = 0;
     persist();
+    // Setup/demo launch links should not override the saved connection on reload.
+    const launchUrl = new URL(location.href);
+    for (const flag of ['connect', 'demo']) {
+      if (launchUrl.searchParams.get(flag) === '1') launchUrl.searchParams.delete(flag);
+    }
+    if (launchUrl.href !== location.href) {
+      try { history.replaceState(history.state, '', launchUrl.href); }
+      catch (_) { /* Some packaged TV runtimes do not expose browser history. */ }
+    }
     $('password').value = '';
     goGrid();
   } catch (error) {
     nextClient?.logout();
     if (generation !== connectGeneration) return;
     candidate = null;
+    failure = error;
     $('form-error').textContent = error.message;
     $('form-error').hidden = false;
     $('form-error').scrollIntoView({ block: 'nearest' });
   } finally {
-    if (generation === connectGeneration) setConnecting(false);
+    if (generation === connectGeneration) {
+      setConnecting(false);
+      if (failure && screen === 'settings' && !document.hidden && $('dialog-overlay').hidden) {
+        $(failure.kind === 'auth' ? 'password' : 'connect-button').focus();
+      }
+    }
   }
 }
 
@@ -495,8 +596,7 @@ async function openDemo() {
   }
   if (client) client.logout();
   client = new DemoClient();
-  recorder = await client.connect();
-  channels = recorder.channels;
+  channels = (await client.connect()).channels;
   selected = null; page = 0; filter = 'all';
   $('password').value = '';
   goGrid();
@@ -646,7 +746,13 @@ function back() {
   if (screen === 'grid' && gridFullscreen.active) { gridFullscreen.exit(); return; }
   if (screen === 'settings' && connecting) {
     connectGeneration++; previewController?.abort(); candidate?.close(); candidate = null; setConnecting(false);
-    if (client) goGrid();
+    $('connect-button').focus();
+    return;
+  }
+  if (screen === 'settings' && setupStep === 'manual') { returnToRecorders(); return; }
+  if (screen === 'settings' && setupStep === 'login') {
+    if (loginSource === 'manual') showManualAddress();
+    else returnToRecorders();
     return;
   }
   if (screen === 'settings' && client) { $('password').value = ''; goGrid(); return; }
@@ -662,9 +768,18 @@ function back() {
 
 $('connection-form').addEventListener('submit', event => {
   event.preventDefault();
-  if (connecting) return;
+  if (connecting || setupStep !== 'login') return;
   try { connect(readForm()); }
   catch (error) { $('form-error').textContent = error.message; $('form-error').hidden = false; $('form-error').scrollIntoView({ block: 'nearest' }); }
+});
+$('manual-button').onclick = showManualAddress;
+$('manual-back').onclick = returnToRecorders;
+$('login-back').onclick = back;
+$('change-recorder').onclick = back;
+$('manual-form').addEventListener('submit', event => {
+  event.preventDefault();
+  try { selectRecorder({ address: $('address').value }, 'manual'); }
+  catch (error) { $('manual-error').textContent = error.message; $('manual-error').hidden = false; }
 });
 $('address').addEventListener('input', () => {
   connectGeneration++; previewController?.abort(); candidate?.close(); candidate = null;
@@ -685,7 +800,11 @@ $('dashboard').addEventListener('focusin', event => {
 });
 $('layout-auto').onclick = () => applyLayout('auto');
 $('layout-close').onclick = closeLayout;
-$('settings-cancel').onclick = back;
+$('settings-cancel').onclick = () => {
+  connectGeneration++; previewController?.abort(); candidate?.close(); candidate = null; setConnecting(false);
+  $('password').value = '';
+  goGrid();
+};
 $('back-grid').onclick = goGrid;
 $('retry-video').onclick = () => { openCamera(selected, true); scheduleCycle(); };
 $('prev-camera').onclick = () => nextCamera(-1);
@@ -802,6 +921,7 @@ document.addEventListener('keydown', event => {
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) { discovery.stop(); poller?.stop(); liveGrid.stop(); player.stop(); clearTimeout(statusTimer); clearInterval(cycleTimer); clearTimeout(hideTimer); clearTimeout(gridHideTimer); }
   else {
+    if (screen === 'settings' && setupStep === 'search' && ['idle', 'stopped'].includes(discovery.state) && $('dialog-overlay').hidden) startSetupSearch();
     if (screen === 'viewer' && selected !== null && !paused) openCamera(selected, true);
     else if (screen === 'grid') { startGridMedia(); revealGridControls(); }
     scheduleCycle(); startStatusPoll();
@@ -812,10 +932,8 @@ window.addEventListener('resize', scaleStage);
 registerRemote(); scaleStage(); clock(); setInterval(clock, 1000);
 fillForm();
 const launchMode = new URLSearchParams(location.search);
-if (launchMode.get('connect') === '1') {
-  $('address').focus();
-}
-else if (launchMode.get('demo') === '1') openDemo();
-else if (settings.password && settings.address) connect(settings);
-else $('address').focus();
-if (screen === 'settings' && !connecting && !$('address').value && !document.hidden) discovery.start();
+if (launchMode.get('demo') === '1' && launchMode.get('connect') !== '1') openDemo();
+else if (settings.password && settings.address) {
+  selectRecorder({ address: settings.address });
+  connect(settings);
+} else startSetupSearch();

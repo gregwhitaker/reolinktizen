@@ -6,7 +6,7 @@
   "description": "A local Reolink NVR viewer for Samsung Tizen TVs",
   "engines": { "node": ">=20" },
   "scripts": {
-    "dev": "node scripts/serve.mjs",
+    "dev": "node --watch scripts/serve.mjs",
     "build": "node scripts/build.mjs",
     "build:discovery": "node scripts/build-discovery.mjs",
     "test": "node --test tests/*.test.mjs",

@@ -17,17 +17,21 @@ function fixture(scan, value = '') {
   const fields = Object.fromEntries(['root', 'address', 'status', 'results', 'button'].map(name => [name, new Element()]));
   fields.address.value = value;
   const selected = [];
-  const ui = new DiscoveryUI({ ...fields, scan, onSelect: device => {
+  const states = [];
+  const ui = new DiscoveryUI({ ...fields, scan, onState: state => states.push(state), onSelect: device => {
     selected.push(device); fields.address.value = device.ip; fields.address.dispatchEvent(new Event('input'));
   } });
-  return { ...fields, selected, ui };
+  return { ...fields, selected, states, ui };
 }
 
-test('one NVR fills an empty address without requiring another selection or login', async () => {
+test('first-time setup shows search, then an explicit choice even for a single NVR', async () => {
   const f = fixture(async () => [nvr]); await f.ui.start();
+  assert.equal(f.address.value, ''); assert.deepEqual(f.selected, []);
+  assert.deepEqual(f.states.map(s => s.state), ['searching', 'results']);
+  assert.equal(f.states[1].count, 1);
+  assert.equal(f.results.children.length, 1); assert.equal(f.button.disabled, false);
+  f.results.children[0].onclick();
   assert.equal(f.address.value, nvr.ip); assert.deepEqual(f.selected, [nvr]);
-  assert.match(f.status.textContent, /Found RLN16-410/);
-  assert.equal(f.results.children.length, 0); assert.equal(f.button.disabled, false);
 });
 
 test('multiple recorders and unknown devices are selectable using ordinary remote-focusable buttons', async () => {
@@ -62,7 +66,8 @@ test('leaving setup cancels discovery and ignores late results', async () => {
   const search = f.ui.start(); assert.equal(f.button.disabled, true);
   f.ui.stop(); assert.equal(signal.aborted, true); complete([nvr]); await search;
   assert.equal(f.selected.length, 0); assert.equal(f.button.disabled, false);
-  assert.doesNotMatch(f.status.textContent, /Looking/); assert.equal(f.results.children.length, 0);
+  assert.equal(f.ui.state, 'stopped'); assert.equal(f.results.children.length, 0);
+  assert.deepEqual(f.states.map(s => s.state), ['searching', 'stopped']);
 });
 
 test('a new search supersedes old results and reports no-results and errors without blocking manual entry', async () => {
@@ -71,12 +76,37 @@ test('a new search supersedes old results and reports no-results and errors with
   const first = f.ui.start(), second = f.ui.start();
   assert.equal(requests[0].signal.aborted, true);
   requests[1].resolve([]); await second; requests[0].resolve([nvr]); await first;
-  assert.match(f.status.textContent, /No NVR found/); assert.equal(f.selected.length, 0);
+  assert.equal(f.ui.state, 'empty'); assert.equal(f.selected.length, 0);
   const third = f.ui.start(); requests[2].reject(new Error('Check local network access.')); await third;
   assert.equal(f.status.textContent, 'Check local network access.'); assert.equal(f.button.disabled, false);
   assert.equal(f.address.disabled, false);
 });
 
-test('unsupported static browser hosting hides discovery while keeping manual entry available', () => {
-  const f = fixture(null); assert.equal(f.root.hidden, true); assert.equal(f.address.disabled, false);
+test('unsupported static hosting ends search with a manual-entry fallback', async () => {
+  const f = fixture(null); await f.ui.start();
+  assert.equal(f.ui.state, 'unavailable'); assert.match(f.status.textContent, /IP address/);
+  assert.equal(f.button.disabled, true); assert.equal(f.address.disabled, false);
+});
+
+test('Search again runs a fresh scan after an empty result and makes the recorder selectable', async () => {
+  let scans = 0;
+  const f = fixture(async () => ++scans === 1 ? [] : [nvr], '10.0.0.5:8443');
+  await f.button.onclick();
+  assert.equal(f.ui.state, 'empty');
+  assert.equal(f.button.textContent, 'Search again');
+  await f.button.onclick();
+  assert.equal(scans, 2); assert.equal(f.results.children.length, 1);
+  f.results.children[0].onclick(); assert.equal(f.address.value, nvr.ip);
+  assert.equal(f.button.disabled, false);
+});
+
+test('finished results survive leaving and returning; a fresh scan replaces them', async () => {
+  let scans = 0;
+  const f = fixture(async () => ++scans === 1 ? [nvr] : []);
+  await f.ui.start(); f.ui.stop();
+  assert.equal(f.ui.state, 'results'); assert.equal(f.results.children.length, 1);
+  assert.deepEqual(f.ui.devices, [nvr]);
+  await f.ui.start();
+  assert.equal(f.ui.state, 'empty'); assert.equal(f.results.children.length, 0);
+  assert.deepEqual(f.ui.devices, []);
 });

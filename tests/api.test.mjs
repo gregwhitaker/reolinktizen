@@ -143,7 +143,7 @@ test('closing a client aborts in-flight work and clears credentials', async () =
   assert.equal(client.controllers.size, 0);
 });
 
-test('password persistence is opt-in, forgetting clears data, malformed settings recover', () => {
+test('passwords persist only for connections marked remembered; forgetting clears data and malformed settings recover', () => {
   const data = new Map();
   const storage = { getItem: key => data.get(key), setItem: (key, value) => data.set(key, value), removeItem: key => data.delete(key) };
   saveSettings({ ...readSettings(storage), ...config }, storage);

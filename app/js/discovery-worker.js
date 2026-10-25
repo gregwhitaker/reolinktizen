@@ -14,9 +14,10 @@ self.onmessage = async event => {
     });
     const devices = await scanTvSockets(module, { id: event.data.id, signal: controller.signal });
     self.postMessage({ type: 'result', devices });
-  } catch (_) {
+  } catch (error) {
     self.postMessage(controller.signal.aborted ? { type: 'cancelled' } : {
-      type: 'error', message: 'Could not search this TV’s network. Check its connection, or enter the NVR IP address.'
+      type: 'error', message: error?.code === 'DISCOVERY_PORT_BUSY' ? error.message :
+        'Could not search this TV’s network. Check its connection, or enter the NVR IP address.'
     });
   } finally {
     try { module?._discovery_close(); } catch (_) {}

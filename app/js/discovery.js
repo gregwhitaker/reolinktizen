@@ -1,4 +1,4 @@
-import { isLanIPv4, sortDiscovered } from './discovery-protocol.js';
+import { isLanIPv4, sortDiscovered, DISCOVERY_PORT_BUSY, DISCOVERY_BLOCKED } from './discovery-protocol.js';
 
 function validatedDevices(value) {
   if (!Array.isArray(value)) throw new Error('Invalid discovery response.');
@@ -28,6 +28,9 @@ export function createDiscovery({ key = '', origin = '', isTV = false,
       });
       if (response.status === 404) throw new Error('Restart npm run dev and reload to enable discovery.');
       if (response.status === 403) throw new Error('Reload this page to search your network.');
+      if (response.status === 429) throw new Error('A network search is already running. Try again shortly.');
+      if (!response.ok && response.headers.get('X-Reolink-Preview-Error') === 'DISCOVERY_PORT_BUSY') throw new Error(DISCOVERY_PORT_BUSY);
+      if (!response.ok && response.headers.get('X-Reolink-Preview-Error') === 'DISCOVERY_BLOCKED') throw new Error(DISCOVERY_BLOCKED);
       if (!response.ok) throw new Error('Could not search your network. Enter the NVR IP address or try again.');
       return validatedDevices((await response.json()).devices);
     } catch (error) {

@@ -1,77 +1,77 @@
-import { automaticDevice } from './discovery-protocol.js';
-
 export class DiscoveryUI {
-  constructor({ root, address, status, results, button, scan, onSelect }) {
-    Object.assign(this, { root, address, status, results, button, scan, onSelect });
+  constructor({ root, status, results, button, scan, onSelect, onState = () => {} }) {
+    Object.assign(this, { root, status, results, button, scan, onSelect, onState });
     this.generation = 0;
-    this.edits = 0;
-    address.addEventListener('input', () => { this.edits++; });
+    this.state = 'idle';
+    this.devices = [];
     button.onclick = () => this.start();
-    root.hidden = !scan;
+  }
+
+  update(state, message) {
+    this.state = state;
+    this.button.disabled = state === 'searching' || !this.scan;
+    this.status.textContent = message;
+    this.onState({ state, count: this.devices.length });
   }
 
   stop() {
     this.generation++;
-    if (this.controller) this.status.textContent = 'Search stopped. Enter the NVR IP address or search again.';
+    const pending = this.controller;
     this.controller?.abort();
     this.controller = null;
-    this.button.disabled = false;
+    this.button.disabled = !this.scan;
     this.button.textContent = 'Search again';
     this.root.removeAttribute('aria-busy');
+    if (pending) this.update('stopped', 'Search again to find your recorder, or enter its IP address.');
   }
 
   reset() {
     this.stop();
+    this.devices = [];
     this.results.replaceChildren();
-    this.status.textContent = '';
-    this.button.textContent = 'Find NVR';
+    this.update('idle', '');
   }
 
   async start() {
-    if (!this.scan) return;
     this.stop();
-    const generation = this.generation, edits = this.edits, initial = this.address.value;
+    this.devices = [];
+    this.results.replaceChildren();
+    if (!this.scan) {
+      this.update('unavailable', 'Automatic search is unavailable here. Enter your recorder’s IP address to continue.');
+      return;
+    }
+    const generation = this.generation;
     const controller = new AbortController(); this.controller = controller;
     this.button.disabled = true;
-    this.button.textContent = 'Searching…';
     this.root.setAttribute('aria-busy', 'true');
-    this.status.textContent = 'Looking for your NVR…';
-    this.results.replaceChildren();
+    this.update('searching', 'Looking for recorders on your network…');
     try {
       const devices = await this.scan(controller.signal);
       if (generation !== this.generation) return;
-      const automatic = !initial.trim() && this.address.value === initial && edits === this.edits ? automaticDevice(devices) : null;
-      if (automatic) {
-        this.onSelect(automatic);
-        this.status.textContent = `Found ${automatic.model || automatic.name}.`;
-      } else {
-        this.status.textContent = devices.length ? 'Select your recorder.' : 'No NVR found. Enter its IP address, or enable ONVIF on the NVR and search again.';
+      this.devices = devices;
+      // Always let the owner choose, including when only one recorder replies.
+      for (const device of devices) {
+        const option = this.root.ownerDocument.createElement('button');
+        option.type = 'button'; option.className = 'discovered-device';
+        const name = this.root.ownerDocument.createElement('strong');
+        name.textContent = device.name;
+        const detail = this.root.ownerDocument.createElement('span');
+        detail.textContent = `${device.ip}${device.model && device.model !== device.name ? ` · ${device.model}` : ''}${device.kind !== 'nvr' ? ' · Reolink device' : ''}`;
+        option.append(name, detail);
+        option.onclick = () => this.onSelect(device);
+        this.results.append(option);
       }
-      if (!automatic || devices.length > 1) {
-        for (const device of devices) {
-          const option = this.root.ownerDocument.createElement('button');
-          option.type = 'button'; option.className = 'discovered-device';
-          const name = this.root.ownerDocument.createElement('strong');
-          name.textContent = device.name;
-          const detail = this.root.ownerDocument.createElement('span');
-          detail.textContent = `${device.ip}${device.model && device.model !== device.name ? ` · ${device.model}` : ''}${device.kind !== 'nvr' ? ' · Reolink device' : ''}`;
-          option.append(name, detail);
-          option.onclick = () => {
-            this.onSelect(device);
-            this.status.textContent = `Selected ${device.model || device.name}.`;
-          };
-          this.results.append(option);
-        }
-      }
+      this.update(devices.length ? 'results' : 'empty', devices.length ?
+        `${devices.length} ${devices.length === 1 ? 'device' : 'devices'} found on your network. Select your recorder to continue.` :
+        'Make sure your recorder is powered on and connected to the same network.');
     } catch (error) {
       if (generation !== this.generation) return;
-      this.status.textContent = controller.signal.aborted ? 'Search timed out. Enter the NVR IP address or try again.' :
-        error?.message || 'Could not search your network. Enter the NVR IP address.';
+      this.update('error', controller.signal.aborted ? 'Search timed out. Try again or enter your recorder’s IP address.' :
+        error?.message || 'Could not search your network. Enter your recorder’s IP address.');
     } finally {
       if (generation === this.generation) {
         this.controller = null;
         this.button.disabled = false;
-        this.button.textContent = 'Search again';
         this.root.removeAttribute('aria-busy');
       }
     }

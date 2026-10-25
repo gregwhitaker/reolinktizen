@@ -16,7 +16,7 @@
 
     <main id="dashboard" hidden>
       <div class="dashboard-heading">
-        <div><p class="eyebrow" id="nvr-name">HOME NVR</p><h1>Your cameras<span class="count" id="camera-count"></span></h1></div>
+        <h1>Your cameras<span class="count" id="camera-count"></span></h1>
         <nav class="toolbar" aria-label="Camera controls">
           <button id="filter-all" class="pill active">All cameras</button>
           <button id="filter-favorites" class="pill">☆ Favorites</button>
@@ -27,11 +27,9 @@
           <button id="settings-button" class="icon-button" aria-label="Settings">⚙ <span>Settings</span></button>
         </nav>
       </div>
-      <div class="overview-caption"><span><i class="snapshot-dot"></i> <span id="overview-label">Snapshot overview</span> <span class="muted">· Full screen for live cameras</span></span><span id="overview-status"></span></div>
       <div id="camera-grid" class="camera-grid" aria-label="Cameras"></div>
       <div id="empty-state" class="empty-state" hidden><div class="empty-icon">☆</div><h2 id="empty-title">No favorites yet</h2><p id="empty-description">Open a camera and select Favorite to keep it here.</p><button id="empty-action" class="secondary">Show all cameras</button></div>
       <footer class="dashboard-footer">
-        <div class="remote-hints"><span><kbd>↑↓←→</kbd> Browse</span><span><kbd>OK</kbd> Watch live</span><span><kbd>↩</kbd> Back</span></div>
         <div class="pagination"><button id="page-prev" aria-label="Previous page">←</button><span id="page-label">1 / 1</span><button id="page-next" aria-label="Next page">→</button></div>
       </footer>
       <div id="grid-fullscreen-controls" class="grid-fullscreen-controls" hidden>
@@ -47,22 +45,53 @@
     </main>
 
     <section id="settings" class="settings-screen" aria-labelledby="settings-title">
-      <div class="settings-card">
-        <div class="form-heading"><h2 id="settings-title">Connect your NVR</h2></div>
-        <form id="connection-form" autocomplete="off">
-          <div class="form-scroll">
-            <div class="form-field"><label for="address">NVR IP address</label><input id="address" name="address" type="text" placeholder="192.168.1.100" spellcheck="false" autocomplete="off" autocapitalize="none" required>
-              <div id="discovery" class="discovery" hidden>
-                <div class="discovery-heading"><p id="discovery-status" role="status" aria-live="polite"></p><button type="button" id="discover-button" class="text-button">Find NVR</button></div>
-                <div id="discovery-results" class="discovery-results" aria-label="Discovered devices"></div>
-              </div>
+      <button type="button" id="settings-cancel" class="text-button settings-close" hidden>Back to cameras</button>
+      <div class="settings-layout">
+        <div class="settings-heading">
+          <span class="setup-eyebrow">LET’S GET CONNECTED</span>
+          <h2 id="settings-title">Find your NVR</h2>
+          <p id="settings-description">We’ll look for Reolink recorders on your local network.</p>
+          <ol class="setup-steps" aria-label="Setup progress">
+            <li id="setup-search-step" aria-current="step"><span>1</span>Search</li>
+            <li id="setup-select-step"><span>2</span>Select</li>
+            <li id="setup-login-step"><span>3</span>Sign in</li>
+          </ol>
+        </div>
+        <div class="settings-card">
+          <div id="discovery" class="discovery">
+            <div id="discovery-visual" class="discovery-visual" aria-hidden="true">
+              <div class="search-orbit"></div>
+              <svg viewBox="0 0 80 80"><g fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="13" y="25" width="54" height="30" rx="5"/><path d="M23 35h23M23 43h13"/><circle cx="57" cy="41" r="2"/></g></svg>
             </div>
-            <div class="form-field"><label for="username">Username</label><input id="username" name="username" type="text" value="admin" autocomplete="off" autocapitalize="none" spellcheck="false" required></div>
-            <div class="form-field"><label for="password">Password</label><div class="password-field"><input id="password" name="password" type="password" autocomplete="off" required><button type="button" id="show-password" aria-label="Show password">Show</button></div></div>
-            <p id="form-error" class="form-error" role="alert" hidden></p>
+            <h3 id="discovery-title" tabindex="-1">Searching for your NVR</h3>
+            <p id="discovery-status" role="status" aria-live="polite">Looking for recorders on your network…</p>
+            <div id="discovery-results" class="discovery-results" aria-label="Discovered recorders"></div>
+            <div class="discovery-actions">
+              <button type="button" id="discover-button" class="secondary" hidden>Search again</button>
+              <button type="button" id="manual-button" class="text-button">Enter IP manually</button>
+            </div>
           </div>
-          <div class="form-actions"><button type="button" id="settings-cancel" class="secondary" hidden>Cancel</button><button type="submit" id="connect-button" class="primary">Connect</button></div>
-        </form>
+          <form id="manual-form" autocomplete="off" hidden>
+            <h3>Recorder address</h3>
+            <p class="setup-card-description">Find this in your NVR’s network settings.</p>
+            <div class="connection-input"><label for="address">NVR IP address</label><input id="address" name="address" type="text" placeholder="192.168.1.100" spellcheck="false" autocomplete="off" autocapitalize="none" required></div>
+            <p id="manual-error" class="form-error" role="alert" hidden></p>
+            <div class="form-actions"><button type="button" id="manual-back" class="secondary">Back</button><button type="submit" class="primary">Continue <span aria-hidden="true">→</span></button></div>
+          </form>
+          <form id="connection-form" autocomplete="off" hidden>
+            <div class="form-scroll">
+              <div class="selected-recorder">
+                <span class="recorder-icon" aria-hidden="true"></span>
+                <div><strong id="selected-recorder-name">Reolink NVR</strong><span id="selected-recorder-address"></span></div>
+                <button type="button" id="change-recorder" class="text-button">Change</button>
+              </div>
+              <div class="form-field connection-input"><label for="username">Username</label><input id="username" name="username" type="text" value="admin" autocomplete="off" autocapitalize="none" spellcheck="false" required></div>
+              <div class="form-field connection-input password-field"><label for="password">Password</label><input id="password" name="password" type="password" placeholder="Enter password" autocomplete="off" required><button type="button" id="show-password" aria-label="Show password">Show</button></div>
+              <p id="form-error" class="form-error" role="alert" hidden></p>
+            </div>
+            <div class="form-actions"><button type="button" id="login-back" class="secondary">Back</button><button type="submit" id="connect-button" class="primary">Sign in</button></div>
+          </form>
+        </div>
       </div>
     </section>
 

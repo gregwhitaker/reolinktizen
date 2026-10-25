@@ -16,7 +16,7 @@ export const discoveryFlags = [
   '-Os', '-s', 'ENVIRONMENT_MAY_BE_TIZEN=1', '-s', 'ENVIRONMENT=worker',
   '-s', 'MODULARIZE=1', '-s', 'EXPORT_NAME=createTizenDiscovery',
   '-s', 'NO_EXIT_RUNTIME=1',
-  '-s', 'EXPORTED_FUNCTIONS=["_discovery_open","_discovery_close","_discovery_buffer","_discovery_sender","_discovery_send","_discovery_receive"]',
+  '-s', 'EXPORTED_FUNCTIONS=["_discovery_open","_discovery_close","_discovery_buffer","_discovery_sender","_discovery_send","_discovery_send_reolink","_discovery_receive"]',
   '-s', 'EXTRA_EXPORTED_RUNTIME_METHODS=["UTF8ToString"]'
 ];
 
